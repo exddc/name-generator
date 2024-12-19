@@ -1,1 +1,1 @@
-# name-generator
+# AI Domain Name Generator
