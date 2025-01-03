@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "name_suggestor"
+version = "0.1.0"
+description = "Name suggestor service for brainstorming domain names"
+authors = ["Timo Weiss <timo.weiss@protonmail.ch>"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.115.6"
+uvicorn = "^0.34.0"
+openai = "^1.58.1"
+groq = "^0.13.1"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.0"
+
+[build-system]
+requires = ["poetry>=1.1"]
+build-backend = "poetry.core.masonry.api"
