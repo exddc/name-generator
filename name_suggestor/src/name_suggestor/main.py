@@ -12,11 +12,11 @@ import groq
 # (in production, it's best to keep this in an environment variable)
 # ------------------------------
 """ openai.api_key = os.getenv(
-    "OPENAI_API_KEY"
+    "OPENAI_API_KEY", ""
 )
  """
 client = groq.Groq(
-    api_key=os.environ.get("GROQ_API_KEY"),
+    api_key=os.environ.get("GROQ_API_KEY", ""),
 )
 
 app = FastAPI()
@@ -49,6 +49,7 @@ Generate valid domain names that are memorable and easy to spell. The 5 domain n
 Don't generate variations of the same domain name (e.g., "example.com" and "example.net").
 Use suitable TLDs for each domain name, for example tech startups can use ".io" or ".ai", apps can use ".app", etc.
 Try to use high-quality, professional-sounding domain names that are not too long.
+You can also generate more abstract or creative domain names that are still relevant to the user's idea, but don't fully describe it.
 
 Return ONLY a JSON array of domain names (strings), with no extra commentary.
 Example output: ["mydomain.com", "anotheridea.io"]
@@ -82,6 +83,16 @@ Example output: ["mydomain.com", "anotheridea.io"]
         ):
             raise ValueError("Model did not return a valid list of strings.")
 
+        for suggestion in suggestions:
+            # Remove any leading/trailing whitespace and lowercase the domain names
+            suggestion = suggestion.strip().lower()
+
+            # Remove any sspaces from the domain names
+            suggestion = suggestion.replace(" ", "")
+
+            # Save the updated suggestion back to the list
+            suggestions[suggestions.index(suggestion)] = suggestion
+
         return suggestions
 
     except Exception as e:
@@ -108,7 +119,9 @@ def suggest_domains(request: SuggestRequest):
     and returns an array of possible domain name suggestions from the LLM.
     """
     user_input = request.query
-    suggestions = get_suggestions_from_llm(user_input)
+    suggestions = []
+    while suggestions == []:
+        suggestions = get_suggestions_from_llm(user_input)
     return {"suggestions": suggestions}
 
 
