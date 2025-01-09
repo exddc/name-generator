@@ -122,3 +122,23 @@ def get_or_update_domain(session, full_domain: str):
         session.add(new_domain)
         session.commit()
         return new_domain
+
+
+# =========================================================
+# 5. Query Name Suggestor Microservice
+# =========================================================
+
+NAME_SUGGESTOR_URL = os.getenv("NAME_SUGGESTOR_URL", "http://localhost:8002/suggest")
+
+
+def query_name_suggestor(query: str) -> list[str]:
+    """
+    Calls the external name-suggestor service with:
+      POST { "query": "..." }
+    Expects a response of the form:
+        { "suggestions": [...] }
+    """
+    payload = {"query": query}
+    resp = requests.post(NAME_SUGGESTOR_URL, json=payload, timeout=60)
+    resp.raise_for_status()
+    return resp.json().get("suggestions", [])

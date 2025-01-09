@@ -12,11 +12,13 @@ import groq
 # (in production, it's best to keep this in an environment variable)
 # ------------------------------
 """ openai.api_key = os.getenv(
-    "OPENAI_API_KEY", ""
+    "OPENAI_API_KEY", "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"
 )
  """
 client = groq.Groq(
-    api_key=os.environ.get("GROQ_API_KEY", ""),
+    api_key=os.environ.get(
+        "GROQ_API_KEY", "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"
+    ),
 )
 
 app = FastAPI()

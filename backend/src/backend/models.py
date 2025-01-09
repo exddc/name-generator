@@ -37,3 +37,7 @@ class DomainRequest(BaseModel):
 class DomainResponse(BaseModel):
     domain: str
     status: str
+
+
+class SuggestRequest(BaseModel):
+    query: str

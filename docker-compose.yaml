@@ -16,7 +16,7 @@ services:
         depends_on:
             - postgres
         networks:
-            - domain_checker_network
+            - domain_generator_network
         profiles:
             - dev
             - prod
@@ -33,10 +33,10 @@ services:
         volumes:
             - postgres_data:/var/lib/postgresql/data
         networks:
-            - domain_checker_network
+            - domain_generator_network
 
 networks:
-    domain_checker_network:
+    domain_generator_network:
         driver: bridge
 
 volumes:
