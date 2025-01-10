@@ -15,30 +15,22 @@ export default function Home() {
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    /**
-     * Opens an EventSource connection to:
-     *   http://0.0.0.0:8000/suggest_stream?query={your-query}
-     * Listens for SSE events: domain_suggestion, error, done.
-     */
     const handleSuggestStream = (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
         setDomains([]);
         setErrorMsg(null);
 
-        // Build the SSE URL with query param
         const url = `http://0.0.0.0:8000/suggest_stream?query=${encodeURIComponent(
             userInput
         )}`;
 
-        // Create an EventSource
         const evtSource = new EventSource(url);
 
         evtSource.onopen = () => {
             console.log('SSE connection opened.');
         };
 
-        // If an error occurs at the network-level, this fires
         evtSource.onerror = (err) => {
             console.error('SSE onerror triggered:', err);
             setErrorMsg(
@@ -48,13 +40,10 @@ export default function Home() {
             evtSource.close();
         };
 
-        // The "default" event if the server sends data without an "event:" field
         evtSource.onmessage = (e) => {
             console.log('Generic message:', e.data);
-            // We don't expect generic messages if we always specify "event:" in the backend
         };
 
-        // Listen for named events
         evtSource.addEventListener('domain_suggestion', (e: MessageEvent) => {
             try {
                 const dataObj = JSON.parse(e.data) as DomainData;
@@ -68,16 +57,14 @@ export default function Home() {
         });
 
         evtSource.addEventListener('error', (e: any) => {
-            // The server might be sending an SSE event named "error"
             console.error('SSE error event:', e.data);
             setErrorMsg(e.data ?? 'Unknown error occurred.');
         });
 
         evtSource.addEventListener('done', (e: MessageEvent) => {
             console.log('SSE done event:', e.data);
-            // We can do cleanup or show a "finished" message
             setIsLoading(false);
-            evtSource.close(); // Stop listening
+            evtSource.close();
         });
     };
 
@@ -85,7 +72,7 @@ export default function Home() {
         <main className="flex min-h-screen flex-col items-center justify-center p-24">
             <div className="w-full max-w-md space-y-4">
                 <h1 className="text-2xl font-bold text-center">
-                    Domain Name Generator (SSE)
+                    Domain Name Generator
                 </h1>
 
                 <form onSubmit={handleSuggestStream} className="space-y-4">
@@ -100,9 +87,7 @@ export default function Home() {
                         className="w-full"
                         disabled={isLoading}
                     >
-                        {isLoading
-                            ? 'Generating...'
-                            : 'Generate Domain Names (Stream)'}
+                        {isLoading ? 'Generating...' : 'Generate Domain Names'}
                     </Button>
                 </form>
 
@@ -117,11 +102,30 @@ export default function Home() {
                         <h2 className="text-lg font-semibold">
                             Suggested Domains:
                         </h2>
-                        <ul className="list-disc list-inside mt-2">
+                        <ul className="mt-2 grid grid-cols-1 gap-1">
                             {domains.map((item, index) => (
-                                <li key={index}>
-                                    <strong>{item.domain}</strong> —{' '}
-                                    {item.status}
+                                <li
+                                    key={index}
+                                    className="border border-neutral-200 rounded-lg p-2 flex justify-between items-center"
+                                >
+                                    <a
+                                        href={'https://' + item.domain}
+                                        target="_blank"
+                                        className="font-bold"
+                                    >
+                                        {item.domain}
+                                    </a>
+                                    <p
+                                        className={
+                                            item.status == 'free'
+                                                ? 'text-green-600'
+                                                : item.status == 'registered'
+                                                ? 'text-red-600'
+                                                : 'text-yellow-600'
+                                        }
+                                    >
+                                        {item.status}
+                                    </p>
                                 </li>
                             ))}
                         </ul>

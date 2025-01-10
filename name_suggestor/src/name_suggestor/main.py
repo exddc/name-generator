@@ -100,7 +100,7 @@ def health():
 # ------------------------------
 # Suggest Endpoint
 # ------------------------------
-@app.post("/suggest")
+@app.post("/v1/suggest")
 def suggest_domains(request: SuggestRequest):
     """
     Takes in a user query (e.g., list of domains, app description, company idea)
