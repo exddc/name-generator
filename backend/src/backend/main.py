@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from typing import Generator
 import json
 
 from models import DomainRequest, DomainResponse, SuggestRequest
@@ -37,27 +36,16 @@ def checkdomain(request: DomainRequest):
         for full_domain in request.domains:
             try:
                 domain_record = get_or_update_domain(session, full_domain)
-                # domain_record => Domain(domain_name=..., tld=..., status=..., last_checked=...)
-
-                # Reconstruct a "full domain" string if you'd like
-                # or just return the original 'full_domain'
-                combined = (
-                    f"{domain_record.domain_name}.{domain_record.tld}"
-                    if domain_record.tld
-                    else domain_record.domain_name
-                )
 
                 results.append(
-                    DomainResponse(
-                        domain=full_domain, status=domain_record.status  # or combined
-                    )
+                    DomainResponse(domain=full_domain, status=domain_record.status)
                 )
             except ValueError as ve:
-                # e.g. domain-checker returned no results
                 raise HTTPException(status_code=500, detail=str(ve))
 
         return results
     except Exception as e:
+        print(f"Error in checkdomain: {e}")
         session.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -76,27 +64,22 @@ def suggest(suggest_request: SuggestRequest):
     results = []
 
     try:
-        # Step 1: Grab the user query
         user_input = suggest_request.query
-
-        # Step 2: Get suggestions as a list of strings
         suggestions_list = query_name_suggestor(user_input)
 
         if not suggestions_list:
-            # If empty, we can decide to return an empty list or raise an exception
             return results
 
-        # Step 3: For each suggested domain, check or update via domain_checker logic
         for suggested_domain in suggestions_list:
             domain_record = get_or_update_domain(session, suggested_domain)
             results.append(
                 DomainResponse(domain=suggested_domain, status=domain_record.status)
             )
 
-        # Step 4: Return the final list
         return results
 
     except Exception as e:
+        print(f"Error in suggest: {e}")
         session.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -134,12 +117,10 @@ def suggest_sse(query: str) -> StreamingResponse:
                     try:
                         domain_record = get_or_update_domain(session, suggested_domain)
 
-                        # Reconstruct full domain with TLD
                         full_dom = domain_record.domain_name
                         if domain_record.tld:
                             full_dom += f".{domain_record.tld}"
 
-                        # Build data payload
                         data = {
                             "domain": full_dom,
                             "status": domain_record.status,
@@ -147,14 +128,11 @@ def suggest_sse(query: str) -> StreamingResponse:
                             "total_checked": total_checked,
                         }
 
-                        # Stream an event for *every* domain we check
                         yield make_sse_event("domain_suggestion", data)
 
-                        # If domain is free, increment the free_count
                         if domain_record.status == "free":
                             free_count += 1
 
-                        # If we've found 5 free domains, stop checking further
                         if free_count >= 5:
                             break
 
@@ -162,6 +140,7 @@ def suggest_sse(query: str) -> StreamingResponse:
                         error_message = (
                             f"Error checking domain '{suggested_domain}': {ex}"
                         )
+                        print(error_message)
                         yield make_sse_event("error", error_message)
 
             done_message = f"Successfully found {free_count} free domains out of {total_checked} checked."
@@ -170,6 +149,7 @@ def suggest_sse(query: str) -> StreamingResponse:
 
         except Exception as main_ex:
             error_message = f"Fatal error in suggest_sse: {main_ex}"
+            print(error_message)
             yield make_sse_event("error", error_message)
         finally:
             session.close()
@@ -185,7 +165,6 @@ def make_sse_event(event_type: str, data) -> str:
 
       (plus a blank line)
     """
-    # Convert data to JSON, ensuring it's a string
     json_data = data if isinstance(data, str) else json.dumps(data)
     return f"event: {event_type}\ndata: {json_data}\n\n"
 
