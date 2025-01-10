@@ -1,24 +1,15 @@
 import os
 import json
 from typing import List
-from fastapi import FastAPI, Body
+from fastapi import FastAPI
 from pydantic import BaseModel
-
-# import openai  # for demonstration, but you can replace with other LLM providers
+import dotenv
 import groq
 
-# ------------------------------
-# Configure your OpenAI API key
-# (in production, it's best to keep this in an environment variable)
-# ------------------------------
-""" openai.api_key = os.getenv(
-    "OPENAI_API_KEY", "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"
-)
- """
+dotenv.load_dotenv()
+
 client = groq.Groq(
-    api_key=os.environ.get(
-        "GROQ_API_KEY", "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"
-    ),
+    api_key=os.environ.get("GROQ_API_KEY"),
 )
 
 app = FastAPI()
@@ -28,9 +19,6 @@ class SuggestRequest(BaseModel):
     query: str
 
 
-# ------------------------------
-# LLM Call (OpenAI by default, can be replaced with another LLM)
-# ------------------------------
 def get_suggestions_from_llm(user_input: str) -> List[str]:
     """
     Query an LLM to get domain name suggestions based on the user input.
@@ -39,7 +27,6 @@ def get_suggestions_from_llm(user_input: str) -> List[str]:
     This function should return only a list of domain names (strings).
     Replace this with the relevant calls/settings for other LLM providers if needed.
     """
-    # Prompt the model: instruct it to return a JSON array of strings (domain names).
     prompt = f"""
 You are a domain name generator. The user provided the following input:
 \"{user_input}\"
@@ -49,9 +36,12 @@ Select 5 domain names that would be suitable for this user's idea and that are a
 Don't worry about checking availability; just focus on generating ideas. Don't include any special characters or spaces.
 Generate valid domain names that are memorable and easy to spell. The 5 domain names should be unique and distinct from each other.
 Don't generate variations of the same domain name (e.g., "example.com" and "example.net").
-Use suitable TLDs for each domain name, for example tech startups can use ".io" or ".ai", apps can use ".app", etc.
+Use suitable TLDs for each domain name, for example tech startups can use ".io" or ".ai", apps can use ".app", etc. Focus on high-quality TLDs
+like .com, .de or .co instead of obscure ones, unless they are relevant to the user's idea.
 Try to use high-quality, professional-sounding domain names that are not too long.
 You can also generate more abstract or creative domain names that are still relevant to the user's idea, but don't fully describe it.
+If the user either writes in a foreign language or mentions a specific country, you can consider using a country-specific TLD (e.g., .de for Germany) and 
+include domain names that are relevant to that country or language.
 
 Return ONLY a JSON array of domain names (strings), with no extra commentary.
 Example output: ["mydomain.com", "anotheridea.io"]
@@ -70,16 +60,13 @@ Example output: ["mydomain.com", "anotheridea.io"]
                     "content": prompt,
                 },
             ],
-            model="llama-3.2-3b-preview",
+            model=os.environ.get("MODEL", "llama-3.2-3b-preview"),
         )
 
-        # The model should return JSON array of strings.
         content = response.choices[0].message.content.strip()
 
-        # Attempt to parse the JSON array from the model's response.
         suggestions = json.loads(content)
 
-        # Validate that suggestions is a list of strings; if not, raise an error.
         if not isinstance(suggestions, list) or not all(
             isinstance(s, str) for s in suggestions
         ):
@@ -98,7 +85,6 @@ Example output: ["mydomain.com", "anotheridea.io"]
         return suggestions
 
     except Exception as e:
-        # In case of any error, you might want to return a fallback response or raise the error
         print(f"Error while fetching suggestions from LLM: {e}")
         return []
 
@@ -123,7 +109,11 @@ def suggest_domains(request: SuggestRequest):
     user_input = request.query
     suggestions = []
     while suggestions == []:
-        suggestions = get_suggestions_from_llm(user_input)
+        try:
+            suggestions = get_suggestions_from_llm(user_input)
+        except Exception as e:
+            print(f"Error while fetching suggestions: {e}")
+            return {"suggestions": []}
     return {"suggestions": suggestions}
 
 
