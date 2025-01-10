@@ -23,7 +23,7 @@ async def health():
     return {"status": "ok", "message": "Server is running"}
 
 
-@app.post("/checkdomain", response_model=List[DomainCheckResponse])
+@app.post("/v1/checkdomain", response_model=List[DomainCheckResponse])
 async def check_domains(request: DomainCheckRequest):
     results = []
 

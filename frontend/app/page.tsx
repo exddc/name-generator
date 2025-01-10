@@ -21,7 +21,7 @@ export default function Home() {
         setDomains([]);
         setErrorMsg(null);
 
-        const url = `http://0.0.0.0:8000/suggest_stream?query=${encodeURIComponent(
+        const url = `http://0.0.0.0:8000/v1/suggest_stream?query=${encodeURIComponent(
             userInput
         )}`;
 

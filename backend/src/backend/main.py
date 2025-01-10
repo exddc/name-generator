@@ -22,7 +22,7 @@ def health():
     return {"status": "ok", "message": "Single-table + tldextract backend is running"}
 
 
-@app.post("/checkdomain", response_model=list[DomainResponse])
+@app.post("/v1/checkdomain", response_model=list[DomainResponse])
 def checkdomain(request: DomainRequest):
     """
     For each domain in request.domains:
@@ -52,7 +52,7 @@ def checkdomain(request: DomainRequest):
         session.close()
 
 
-@app.post("/suggest", response_model=list[DomainResponse])
+@app.post("/v1/suggest", response_model=list[DomainResponse])
 def suggest(suggest_request: SuggestRequest):
     """
     1. Receive user input string ("query").
@@ -86,7 +86,7 @@ def suggest(suggest_request: SuggestRequest):
         session.close()
 
 
-@app.get("/suggest_stream")
+@app.get("/v1/suggest_stream")
 def suggest_sse(query: str) -> StreamingResponse:
     """
     1) Accept a 'query' parameter (e.g. /suggest_sse?query=cool+tech).
