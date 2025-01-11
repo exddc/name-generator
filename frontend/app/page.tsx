@@ -69,26 +69,34 @@ export default function Home() {
     };
 
     return (
-        <main className="flex min-h-screen flex-col items-center justify-center p-24">
-            <div className="w-full max-w-md space-y-4">
-                <h1 className="text-2xl font-bold text-center">
-                    Domain Name Generator
+        <main className="flex flex-col items-center justify-center p-24">
+            <div className="w-full max-w-xl space-y-4">
+                <h1 className="text-4xl font-medium text-center tracking-tighter text-balance">
+                    Generate domain names that are guaranteed available
                 </h1>
-
-                <form onSubmit={handleSuggestStream} className="space-y-4">
-                    <Textarea
+                <p className="text-center font-thin tracking-tighter">
+                    Brainstorm with AI and get high quality domains that are
+                    definitely available
+                </p>
+            </div>
+            <div className="w-full max-w-xl space-y-4 mt-8">
+                <form
+                    onSubmit={handleSuggestStream}
+                    className="flex border border-[#D9D9D9]"
+                >
+                    <input
                         placeholder="Describe your app, service, or company idea..."
                         value={userInput}
                         onChange={(e) => setUserInput(e.target.value)}
                         className="min-h-[100px]"
                     />
-                    <Button
+                    <button
                         type="submit"
                         className="w-full"
                         disabled={isLoading}
                     >
                         {isLoading ? 'Generating...' : 'Generate Domain Names'}
-                    </Button>
+                    </button>
                 </form>
 
                 {errorMsg && (
