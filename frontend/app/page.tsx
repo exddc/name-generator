@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -68,10 +69,74 @@ export default function Home() {
         });
     };
 
+    const freeDomains = domains.filter((d) => d.status === 'free');
+    const registeredDomains = domains.filter((d) => d.status === 'registered');
+    const unknownDomains = domains.filter(
+        (d) => d.status !== 'free' && d.status !== 'registered'
+    );
+
+    const hasAnyDomains =
+        freeDomains.length > 0 ||
+        registeredDomains.length > 0 ||
+        unknownDomains.length > 0;
+
+    function renderDomainRow(item: DomainData, index: number) {
+        return (
+            <li
+                key={index}
+                className="flex border border-[#D9D9D9] px-4 py-2 rounded-xl text-sm justify-between bg-white"
+            >
+                <a
+                    href={'https://' + item.domain}
+                    target="_blank"
+                    rel="noreferrer"
+                >
+                    {item.domain}
+                </a>
+                <div className="flex gap-4 items-center">
+                    <p
+                        className={
+                            (item.status === 'free'
+                                ? 'bg-green-300 border-green-800'
+                                : item.status === 'registered'
+                                ? 'bg-red-300 border-red-800'
+                                : 'bg-yellow-200 border-yellow-800') +
+                            ' text-black font-semibold text-xs border px-2 flex items-center h-fit rounded-xl'
+                        }
+                    >
+                        {item.status === 'free'
+                            ? 'Available'
+                            : item.status === 'registered'
+                            ? 'Registered'
+                            : 'Unknown'}
+                    </p>
+                    <button
+                        className="pl-4 pr-2 border-l border-[#D9D9D9] bg-white"
+                        disabled={isLoading}
+                    >
+                        Generate similar
+                    </button>
+                </div>
+            </li>
+        );
+    }
+
     return (
-        <main className="flex flex-col items-center justify-center pt-48">
-            <div className="bg-gradient-to-b from-[#C11A1A] to-[#002AC4] h-[200px] w-96 blur-[120px] -z-10"></div>
-            <div className="w-full max-w-xl space-y-4 -mt-[250px]">
+        <main className="flex flex-col items-center justify-center pt-40">
+            <div
+                className={
+                    'bg-gradient-to-b from-[#C11A1A] to-[#002AC4] w-96  -z-10 transition-all duration-1000' +
+                    (hasAnyDomains
+                        ? ' h-[350px] blur-[180px]'
+                        : ' h-[150px] blur-[120px]')
+                }
+            ></div>
+            <div
+                className={
+                    'w-full max-w-xl space-y-4 transition-all duration-1000' +
+                    (hasAnyDomains ? ' -mt-[450px]' : ' -mt-[200px]')
+                }
+            >
                 <h1 className="text-4xl font-semibold text-center tracking-tight flex flex-col">
                     <span>Generate domain names</span>
                     <span>that are guaranteed available</span>
@@ -80,7 +145,7 @@ export default function Home() {
                     Brainstorm with AI and get high quality domains now:
                 </p>
             </div>
-            <div className="w-full max-w-xl space-y-4 mt-6">
+            <div className="w-full max-w-xl space-y-4 mt-6 bg-white p-3 rounded-xl backdrop-blur-md bg-opacity-70 border border-neutral-300">
                 <form
                     onSubmit={handleSuggestStream}
                     className="flex border border-[#D9D9D9] px-4 py-2 rounded-xl text-sm justify-between bg-white focus-within:ring-1 focus-within:ring-purple-500 focus-within:shadow-sm focus-within:shadow-purple-700"
@@ -106,54 +171,45 @@ export default function Home() {
                     </div>
                 )}
 
-                {domains.length > 0 && (
-                    <div className="mt-6">
-                        <ul className="grid grid-cols-1 gap-1">
-                            {domains.map((item, index) => (
-                                <li
-                                    key={index}
-                                    className="flex border border-[#D9D9D9] px-4 py-2 rounded-xl text-sm justify-between bg-white"
-                                >
-                                    <a
-                                        href={'https://' + item.domain}
-                                        target="_blank"
-                                        className=""
-                                    >
-                                        {item.domain}
-                                    </a>
-                                    <div className="flex gap-4 items-center">
-                                        <p
-                                            className={
-                                                (item.status == 'free'
-                                                    ? 'bg-green-300 border-green-800'
-                                                    : item.status ==
-                                                      'registered'
-                                                    ? 'bg-red-300 border-red-800'
-                                                    : 'bg-yellow-200 border-yellow-800') +
-                                                ' text-black font-semibold text-xs border px-2 flex items-center h-fit rounded-xl'
-                                            }
-                                        >
-                                            {item.status == 'free'
-                                                ? 'Available'
-                                                : item.status == 'registered'
-                                                ? 'Registered'
-                                                : 'Unknown'}
-                                        </p>
-                                        <button
-                                            className="pl-4 pr-2 border-l border-[#D9D9D9] bg-white"
-                                            disabled={isLoading}
-                                        >
-                                            {isLoading
-                                                ? '...'
-                                                : 'Generate similar'}
-                                        </button>
-                                    </div>
-                                </li>
-                            ))}
-                        </ul>
+                {hasAnyDomains && (
+                    <div className="pt-3 space-y-4">
+                        {freeDomains.length > 0 && (
+                            <details open>
+                                <summary className="cursor-pointer text-sm font-semibold mb-2 ml-2">
+                                    Available Domains ({freeDomains.length})
+                                </summary>
+                                <ul className="mt-2 space-y-2">
+                                    {freeDomains.map(renderDomainRow)}
+                                </ul>
+                            </details>
+                        )}
+
+                        {registeredDomains.length > 0 && (
+                            <details>
+                                <summary className="cursor-pointer text-sm font-semibold mb-2 ml-2">
+                                    Registered Domains (
+                                    {registeredDomains.length})
+                                </summary>
+                                <ul className="mt-2 space-y-2">
+                                    {registeredDomains.map(renderDomainRow)}
+                                </ul>
+                            </details>
+                        )}
+
+                        {unknownDomains.length > 0 && (
+                            <details>
+                                <summary className="cursor-pointer text-sm font-semibold mb-2 ml-2">
+                                    Other ({unknownDomains.length})
+                                </summary>
+                                <ul className="mt-2 space-y-2">
+                                    {unknownDomains.map(renderDomainRow)}
+                                </ul>
+                            </details>
+                        )}
                     </div>
                 )}
             </div>
+
             <div className="w-full max-w-xl space-y-4 mt-48">
                 <h2 className="text-2xl font-semibold text-center tracking-tight flex flex-col">
                     <span>Get many suggestions and iterations</span>
