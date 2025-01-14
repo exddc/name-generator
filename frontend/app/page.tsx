@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { FlipWords } from '@/components/ui/flip-words';
 
 interface DomainData {
     domain: string;
@@ -15,6 +16,8 @@ export default function Home() {
     const [domains, setDomains] = useState<DomainData[]>([]);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+
+    const flipwords = ['app', 'service', 'company', 'idea', 'project'];
 
     const handleSuggestStream = (e: React.FormEvent) => {
         e.preventDefault();
@@ -125,12 +128,15 @@ export default function Home() {
         <main className="flex flex-col items-center justify-center pt-40">
             <div
                 className={
-                    'bg-gradient-to-b from-[#C11A1A] to-[#002AC4] w-96  -z-10 transition-all duration-1000' +
+                    'transition-all duration-1000 flex' +
                     (hasAnyDomains
                         ? ' h-[350px] blur-[180px]'
                         : ' h-[150px] blur-[120px]')
                 }
-            ></div>
+            >
+                <div className="animate-[spin_5s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,#F76363_0%,#3D65F5_100%)] w-[300px] h-full"></div>
+                <div className="animate-[spin_10s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,#C11A1A_0%,#002AC4_100%)] w-[300px] h-full"></div>
+            </div>
             <div
                 className={
                     'w-full max-w-xl space-y-4 transition-all duration-1000' +
@@ -142,28 +148,33 @@ export default function Home() {
                     <span>that are guaranteed available</span>
                 </h1>
                 <p className="text-center font-light tracking-tight">
-                    Brainstorm with AI and get high quality domains now:
+                    Get domain options based on your idea that are available to
+                    register
                 </p>
             </div>
+
             <div className="w-full max-w-xl space-y-4 mt-6 bg-white p-3 rounded-xl backdrop-blur-md bg-opacity-70 border border-neutral-300">
-                <form
-                    onSubmit={handleSuggestStream}
-                    className="flex border border-[#D9D9D9] px-4 py-2 rounded-xl text-sm justify-between bg-white focus-within:ring-1 focus-within:ring-purple-500 focus-within:shadow-sm focus-within:shadow-purple-700"
-                >
-                    <input
-                        placeholder="Describe your app, service, or company idea..."
-                        value={userInput}
-                        onChange={(e) => setUserInput(e.target.value)}
-                        className="w-full outline-none bg-white"
-                    />
-                    <button
-                        type="submit"
-                        className="pl-4 pr-2 border-l border-[#D9D9D9] bg-white"
-                        disabled={isLoading}
+                <div className="relative overflow-hidden p-[1px] rounded-xl group">
+                    <form
+                        onSubmit={handleSuggestStream}
+                        className="flex border border-[#D9D9D9] px-4 py-2 text-sm justify-between rounded-xl bg-white"
                     >
-                        {isLoading ? '...' : 'Go'}
-                    </button>
-                </form>
+                        <input
+                            placeholder="Describe your app, service, or company idea..."
+                            value={userInput}
+                            onChange={(e) => setUserInput(e.target.value)}
+                            className="w-full outline-none bg-transparent"
+                        />
+                        <button
+                            type="submit"
+                            className="pl-4 pr-2 border-l border-[#D9D9D9] bg-transparent"
+                            disabled={isLoading}
+                        >
+                            {isLoading ? '...' : 'Go'}
+                        </button>
+                    </form>
+                    <span className="absolute inset-[-1000%] animate-[spin_5s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,#FFB9B9_0%,#E3CBE9_50%,#9FB3FF_100%)] -z-10 opacity-0 group-focus-within:opacity-100" />
+                </div>
 
                 {errorMsg && (
                     <div className="mt-2 text-red-500">
@@ -210,23 +221,32 @@ export default function Home() {
                 )}
             </div>
 
-            <div className="w-full max-w-xl space-y-4 mt-48">
-                <h2 className="text-2xl font-semibold text-center tracking-tight flex flex-col">
-                    <span>Get many suggestions and iterations</span>
-                    <span>for your project, app, idea ...</span>
+            <div className="w-full max-w-xl space-y-4 mt-48 text-left">
+                <h2 className="text-2xl font-semibold tracking-tight flex flex-col">
+                    <span>Get many suggestions</span>
+                    <span>
+                        and iterations for your
+                        <FlipWords words={flipwords} />
+                    </span>
                 </h2>
-                <p className="text-center font-light tracking-tight text-balance">
-                    Having a high quality domain will help you generate more
-                    leads and be easily recognised
+                <p className="font-light tracking-tight text-balance">
+                    Choosing a great domain name is often the first step in
+                    bringing your business, app, or project to life. Our AI
+                    takes your input and quickly provides available domain
+                    names. This means you can skip the guesswork and go straight
+                    to securing a name that fits your brand and vision.
                 </p>
             </div>
-            <div className="w-full max-w-xl space-y-4 mt-48">
-                <h2 className="text-2xl font-semibold text-center tracking-tight flex flex-col text-balance">
-                    High quality domains are key to success in the digital world
+            <div className="w-full max-w-xl space-y-4 mt-48 text-right">
+                <h2 className="text-2xl font-semibold tracking-tight flex flex-col">
+                    How it works
                 </h2>
-                <p className="text-center font-light tracking-tight text-balance">
-                    Get started now and generate domain names that are
-                    guaranteed available
+                <p className="font-light tracking-tight text-balance">
+                    Describe your app, service, or company idea in the search
+                    bar. Click "Go" and our AI will generate available domain
+                    names based on your input. You get 5 available domain names
+                    and more that are registered for inspiration or to help you
+                    find similar names.
                 </p>
             </div>
         </main>

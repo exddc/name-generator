@@ -20,7 +20,7 @@ export default function RootLayout({
     children: React.ReactNode;
 }>) {
     return (
-        <html lang="en" className="w-full h-full">
+        <html lang="en" className="w-full h-screen">
             <body className={`${interSans.variable} antialiased flex flex-col`}>
                 <Header />
                 {children}
