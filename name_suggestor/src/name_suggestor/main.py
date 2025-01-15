@@ -45,7 +45,9 @@ If the user mentions a specific keyword or phrase, you can include domain names 
 If the user mentions a specific product or service, you can include domain names that are relevant to that product or service.
 If the user mentions a specific feature or function, you can include domain names that are relevant to that feature or function.
 If the user mentions a specific technology or tool, you can include domain names that are relevant to that technology or tool.
-If the use gives you a name or a title, your domain names should include that name or title. Try to include the name or title in a creative way that makes the domain name more interesting.
+If the use gives you a name or a title, your domain names should include that name or title. 
+Try to include the name or title in a creative way that makes the domain name more interesting.
+Make the domain names as short as possible while still being descriptive and memorable.
 
 Return ONLY a JSON array of domain names (strings), with no extra commentary.
 Example output: ["mydomain.com", "anotheridea.io"]

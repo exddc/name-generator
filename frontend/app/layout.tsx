@@ -1,11 +1,16 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Inter, Newsreader } from 'next/font/google';
 import './globals.css';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 
 const interSans = Inter({
     variable: '--font-inter-sans',
+    subsets: ['latin'],
+});
+
+const newsreaderSerif = Newsreader({
+    variable: '--font-newsreader-serif',
     subsets: ['latin'],
 });
 
@@ -21,7 +26,9 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en" className="w-full h-screen">
-            <body className={`${interSans.variable} antialiased flex flex-col`}>
+            <body
+                className={`${interSans.variable} ${newsreaderSerif.variable} antialiased flex flex-col`}
+            >
                 <Header />
                 {children}
                 <Footer />
