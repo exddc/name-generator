@@ -46,7 +46,7 @@ def query_domain_checker(domains: list[str]) -> list[dict]:
       [ { "domain": "<domain>", "status": "<status>" }, ... ]
     """
     payload = {"domains": domains}
-    resp = requests.post(os.getenv("DOMAIN_CHECKER_URL"), json=payload, timeout=10)
+    resp = requests.post(os.getenv("DOMAIN_CHECKER_URL"), json=payload, timeout=20)
     resp.raise_for_status()
     return resp.json()
 
@@ -60,11 +60,15 @@ def get_or_update_domain(session, full_domain: str):
     """
     domain_name, tld = extract_domain_tld(full_domain)
 
-    existing = session.query(Domain).filter_by(domain_name=domain_name, tld=tld).first()
+    try:
+        existing = session.query(Domain).filter_by(domain_name=domain_name, tld=tld).first()
+    except Exception as e:
+        print(f"Error while querying domain: {e}")
+        existing = None
 
     # If found and less than 12 hour old, return it
     if existing:
-        time_diff = datetime.datetime.now(datetime.timezone.utc) - existing.last_checked
+        time_diff = datetime.datetime.utcnow() - existing.last_checked
         if time_diff.total_seconds() < 3600 * 12:
             return existing
 
@@ -76,7 +80,7 @@ def get_or_update_domain(session, full_domain: str):
 
     if existing:
         existing.status = new_status
-        existing.last_checked = datetime.datetime.now(datetime.timezone.utc)
+        existing.last_checked = datetime.datetime.utcnow()
         session.commit()
         return existing
     else:
@@ -84,7 +88,7 @@ def get_or_update_domain(session, full_domain: str):
             domain_name=domain_name,
             tld=tld,
             status=new_status,
-            last_checked=datetime.datetime.now(datetime.timezone.utc),
+            last_checked=datetime.datetime.utcnow(),
         )
         session.add(new_domain)
         session.commit()

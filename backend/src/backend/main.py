@@ -94,7 +94,7 @@ def suggest(suggest_request: SuggestRequest):
 def suggest_sse(request: Request, query: str) -> StreamingResponse:
     # Basic metadata
     request_id = str(uuid.uuid4())
-    request_start_time = datetime.datetime.now(datetime.timezone.utc)
+    request_start_time = datetime.datetime.utcnow()
     start_perf = time.perf_counter()
 
     # Attempt to get IP
@@ -189,7 +189,7 @@ def suggest_sse(request: Request, query: str) -> StreamingResponse:
             # Always log your metrics
             session_expired_time = time.perf_counter()
             total_request_ms = (session_expired_time - start_perf) * 1000
-            request_end_time = datetime.datetime.now(datetime.timezone.utc)
+            request_end_time = datetime.datetime.utcnow()
 
             new_metric = Metric(
                 request_id=request_id,
@@ -202,7 +202,7 @@ def suggest_sse(request: Request, query: str) -> StreamingResponse:
                 total_checked=total_checked,
                 free_found=free_found,
                 errors_count=errors_count,
-                error_messages=json.dumps(error_messages),  # store as JSON
+                error_messages=json.dumps(error_messages),
                 query=query,
                 domains=json.dumps(checked_domains),
                 ip=ip_address,

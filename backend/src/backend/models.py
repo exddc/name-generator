@@ -26,7 +26,16 @@ class Domain(Base):
     domain_name = Column(String, nullable=False)
     tld = Column(String, nullable=False)
     status = Column(String, nullable=False)
-    last_checked = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    last_checked = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow(),
+    )
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow(),
+    )
 
     __table_args__ = (
         PrimaryKeyConstraint("domain_name", "tld"),  # Composite primary key
@@ -59,6 +68,12 @@ class Metric(Base):
 
     # Error messages
     error_messages = Column(String, nullable=True)
+
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow(),
+    )
 
 
 # ==========================
