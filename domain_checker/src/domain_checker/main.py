@@ -44,41 +44,56 @@ def check_domain(domain: str) -> str:
     # Normalize the input domain
     domain = normalize_domain(domain)
 
-    # 1. Try DNS resolution to see if it resolves to an IP address
+    # 1. Try DNS resolution
+    # If DNS resolution succeeds, it's almost certainly registered (active).
     try:
         socket.gethostbyname(domain)
         # If DNS resolution succeeds, it's very likely registered
         return "registered"
     except socket.gaierror:
-        # DNS resolution failed - might be free, or might just not have DNS set up.
+        # DNS resolution failed - might be free, or might not have DNS set up.
         pass
 
     # 2. Try a WHOIS lookup
     try:
-        # Run a whois command (assuming the local system has it installed)
         result = subprocess.run(
             ["whois", domain], capture_output=True, text=True, timeout=10
         )
-
-        # Normalize the output to handle case-insensitivity
         whois_output = result.stdout.lower()
 
-        # If WHOIS indicates there's no record
-        if (
-            "no match" in whois_output
-            or "not found" in whois_output
-            or "no entries found" in whois_output
-        ):
+        # Common strings indicating that a domain is free
+        free_keywords = [
+            "no match",
+            "not found",
+            "no entries found",
+            "domain you requested is not known",
+            "status: available",
+            "available for purchase",
+            "status: free",
+            "the queried object does not exist",
+            "no data found",
+        ]
+        if any(keyword in whois_output for keyword in free_keywords):
             return "free"
 
-        # If WHOIS output seems to contain a domain name or relevant info
-        if "domain name" in whois_output or "registrar" in whois_output:
+        # Common strings indicating that the domain is registered
+        # (presence of a registrar, domain creation/expiry info, name servers, etc.)
+        registered_keywords = [
+            "domain name:",
+            "registrar:",
+            "domain status:",
+            "creation date:",
+            "expiry date:",
+            "nameserver:",
+            "name server:",
+        ]
+        if any(keyword in whois_output for keyword in registered_keywords):
             return "registered"
+
     except Exception:
-        # If WHOIS fails for any reason (timeout, not installed, etc.)
         pass
 
-    # If neither DNS resolution nor WHOIS lookups can conclude, return non conclusive
+    # If neither DNS nor WHOIS conclusively determines free vs. registered
     return "non conclusive"
 
 
@@ -89,11 +104,8 @@ def normalize_domain(input_string: str) -> str:
     :param input_string: The input string (URL or domain)
     :return: A normalized domain name
     """
-    # Parse the URL to extract the netloc (domain)
     parsed = urlparse(input_string)
     domain = parsed.netloc if parsed.netloc else input_string
-
-    # Remove any trailing slashes
     return domain.strip().lower()
 
 
