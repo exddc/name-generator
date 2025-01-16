@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { FlipWords } from '@/components/ui/flip-words';
 import Typewriter from '@/components/fancy/typewriter';
 import { FaqSection } from '@/components/ui/faq';
+import ClientTweetCard from '@/components/magicui/client-tweet-card';
 
 interface DomainData {
     domain: string;
@@ -362,7 +363,7 @@ export default function Home() {
                             <FlipWords words={flipwords} />
                         </span>
                     </h2>
-                    <p className="font-light tracking-tight text-balance">
+                    <p className="font-light text-balance">
                         Choosing a great domain name is often the first step in
                         bringing your business, app, or project to life. Our AI
                         takes your input and quickly provides available domain
@@ -421,13 +422,31 @@ export default function Home() {
                     <h2 className="text-2xl font-semibold tracking-tight flex flex-col">
                         Explain what your creating
                     </h2>
-                    <p className="font-light tracking-tight text-balance">
+                    <p className="font-light text-balance">
                         Describe your app, service, or company idea in the
                         search bar. Click "Go" and our AI will generate
                         available domain names based on your input. You get 5
                         available domain names and more that are registered for
                         inspiration or to help you find similar names.
                     </p>
+                </div>
+            </div>
+            <div className="w-full flex mt-48 align-middle justify-center transition-all duration-300 gap-6 px-6 2xl:px-0">
+                <div className="w-full max-w-2xl space-y-4 text-left">
+                    <h2 className="text-2xl font-semibold tracking-tight flex flex-col">
+                        How it started
+                    </h2>
+                    <p className="font-light text-balance">
+                        I just wanted a good domain for another project I was
+                        working on. I tried a few domain generators but they
+                        were all slow and didn't give me the results I wanted
+                        plus most of them were terrible to use and look at. So I
+                        did the only logical thing and built my own. It's fast,
+                        simple, and gives me the results I need.
+                    </p>
+                </div>
+                <div className="max-w-sm h-fit">
+                    <ClientTweetCard id="1867792841566826710" />
                 </div>
             </div>
             <div className="w-full flex mt-48 align-middle justify-center px-6 2xl:px-0">
