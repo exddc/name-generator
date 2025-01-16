@@ -1,9 +1,13 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import json
+import datetime
+import uuid
+import asyncio
+import time
 
-from models import DomainRequest, DomainResponse, SuggestRequest
+from models import DomainRequest, DomainResponse, SuggestRequest, Metric
 from utils import SessionLocal, get_or_update_domain, query_name_suggestor
 
 app = FastAPI()
@@ -87,72 +91,131 @@ def suggest(suggest_request: SuggestRequest):
 
 
 @app.get("/v1/suggest_stream")
-def suggest_sse(query: str) -> StreamingResponse:
-    """
-    1) Accept a 'query' parameter (e.g. /suggest_sse?query=cool+tech).
-    2) Use your name_suggestor to get a list of suggested domains (possibly large).
-    3) For each domain, call get_or_update_domain for domain checking.
-    4) Stream back SSE events:
-        - "domain_suggestion" for each domain
-        - Stop once we've found 5 free domains or run out of suggestions
-        - "done" when we finish (with a message about how many free we found)
-        - "error" if something goes wrong
-    """
-    session = SessionLocal()
+def suggest_sse(request: Request, query: str) -> StreamingResponse:
+    # Basic metadata
+    request_id = str(uuid.uuid4())
+    request_start_time = datetime.datetime.now(datetime.timezone.utc)
+    start_perf = time.perf_counter()
+
+    # Attempt to get IP
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        ip_address = forwarded_for.split(",")[0].strip()
+    else:
+        ip_address = request.client.host if request.client else "unknown"
 
     def sse_event_stream():
-        try:
-            free_count = 0
-            total_checked = 0
+        session = SessionLocal()
 
-            while free_count < 5:
+        # Initialize counters and timers
+        total_checked = 0
+        free_found = 0
+        suggestions_count = 0
+        errors_count = 0
+        time_suggestor_ms = 0.0
+        time_domain_check_ms = 0.0
+
+        # Store all domain strings if you want to see them later
+        checked_domains = []
+        # NEW: a list to keep all error messages
+        error_messages = []
+
+        try:
+            while free_found < 5:
+                # measure how long the suggestor takes
+                suggestor_start = time.perf_counter()
                 suggestions = query_name_suggestor(query)
+                suggestor_end = time.perf_counter()
+                time_suggestor_ms += (suggestor_end - suggestor_start) * 1000
+
                 if not suggestions:
                     yield make_sse_event("done", "No suggestions found.")
                     return
 
-                for suggested_domain in suggestions:
-                    total_checked += 1
+                suggestions_count += len(suggestions)
 
+                for suggested_domain in suggestions:
+                    check_start = time.perf_counter()
                     try:
                         domain_record = get_or_update_domain(session, suggested_domain)
-
-                        full_dom = domain_record.domain_name
-                        if domain_record.tld:
-                            full_dom += f".{domain_record.tld}"
-
-                        data = {
-                            "domain": full_dom,
-                            "status": domain_record.status,
-                            "free_found_so_far": free_count,
-                            "total_checked": total_checked,
-                        }
-
-                        yield make_sse_event("domain_suggestion", data)
-
-                        if domain_record.status == "free":
-                            free_count += 1
-
-                        if free_count >= 5:
-                            break
-
                     except Exception as ex:
-                        error_message = (
-                            f"Error checking domain '{suggested_domain}': {ex}"
-                        )
-                        print(error_message)
-                        yield make_sse_event("error", error_message)
+                        errors_count += 1
+                        error_msg = f"Error checking domain '{suggested_domain}': {ex}"
+                        error_messages.append(error_msg)
+                        print(error_msg)
+                        yield make_sse_event("error", error_msg)
+                        continue
+                    finally:
+                        check_end = time.perf_counter()
+                        time_domain_check_ms += (check_end - check_start) * 1000
 
-            done_message = f"Successfully found {free_count} free domains out of {total_checked} checked."
+                    total_checked += 1
 
+                    full_dom = domain_record.domain_name
+                    if domain_record.tld:
+                        full_dom += f".{domain_record.tld}"
+                    checked_domains.append(full_dom)
+
+                    data = {
+                        "domain": full_dom,
+                        "status": domain_record.status,
+                        "free_found_so_far": free_found,
+                        "total_checked": total_checked,
+                    }
+                    yield make_sse_event("domain_suggestion", data)
+
+                    if domain_record.status == "free":
+                        free_found += 1
+                    if free_found >= 5:
+                        break
+
+            done_message = f"Successfully found {free_found} free domains out of {total_checked} checked."
             yield make_sse_event("done", done_message)
 
+        except asyncio.CancelledError:
+            # SSE disconnected by client
+            error_msg = "SSE stream cancelled by client."
+            error_messages.append(error_msg)
+            print(error_msg)
+            yield make_sse_event("done", "Client disconnected.")
+            # No re-raise so we still log in the finally block
         except Exception as main_ex:
-            error_message = f"Fatal error in suggest_sse: {main_ex}"
-            print(error_message)
-            yield make_sse_event("error", error_message)
+            errors_count += 1
+            error_msg = f"Error generating domain suggestions: {main_ex}"
+            error_messages.append(error_msg)
+            print(error_msg)
+            yield make_sse_event("error", error_msg)
         finally:
-            session.close()
+            # Always log your metrics
+            session_expired_time = time.perf_counter()
+            total_request_ms = (session_expired_time - start_perf) * 1000
+            request_end_time = datetime.datetime.now(datetime.timezone.utc)
+
+            new_metric = Metric(
+                request_id=request_id,
+                start_time=request_start_time,
+                end_time=request_end_time,
+                total_request_ms=total_request_ms,
+                time_suggestor_ms=time_suggestor_ms,
+                time_domain_check_ms=time_domain_check_ms,
+                suggestions_count=suggestions_count,
+                total_checked=total_checked,
+                free_found=free_found,
+                errors_count=errors_count,
+                error_messages=json.dumps(error_messages),  # store as JSON
+                query=query,
+                domains=json.dumps(checked_domains),
+                ip=ip_address,
+            )
+
+            try:
+                session.add(new_metric)
+                session.commit()
+            except Exception as metric_ex:
+                print(f"Error saving metric: {metric_ex}")
+                session.rollback()
+            finally:
+                session.close()
 
     return StreamingResponse(sse_event_stream(), media_type="text/event-stream")
 
@@ -162,7 +225,6 @@ def make_sse_event(event_type: str, data) -> str:
     Helper to format a Server-Sent Event:
       event: <event_type>
       data: <json serialized data>
-
       (plus a blank line)
     """
     json_data = data if isinstance(data, str) else json.dumps(data)

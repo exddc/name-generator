@@ -64,7 +64,7 @@ def get_or_update_domain(session, full_domain: str):
 
     # If found and less than 12 hour old, return it
     if existing:
-        time_diff = datetime.datetime.utcnow() - existing.last_checked
+        time_diff = datetime.datetime.now(datetime.timezone.utc) - existing.last_checked
         if time_diff.total_seconds() < 3600 * 12:
             return existing
 
@@ -76,7 +76,7 @@ def get_or_update_domain(session, full_domain: str):
 
     if existing:
         existing.status = new_status
-        existing.last_checked = datetime.datetime.utcnow()
+        existing.last_checked = datetime.datetime.now(datetime.timezone.utc)
         session.commit()
         return existing
     else:
@@ -84,7 +84,7 @@ def get_or_update_domain(session, full_domain: str):
             domain_name=domain_name,
             tld=tld,
             status=new_status,
-            last_checked=datetime.datetime.utcnow(),
+            last_checked=datetime.datetime.now(datetime.timezone.utc),
         )
         session.add(new_domain)
         session.commit()
