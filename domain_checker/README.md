@@ -20,3 +20,12 @@ Run the tests with Poetry:
 ```bash
 poetry run pytest
 ```
+
+## Development
+
+To run the service in development mode, use the following command:
+
+```bash
+docker build --tag domain_checker .
+docker run -p 8001:8001 domain_checker
+```
