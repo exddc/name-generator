@@ -1,11 +1,18 @@
-# Dockerfile for domain_checker service
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY pyproject.toml poetry.lock ./
-RUN pip install poetry && poetry install
+RUN apt-get update && apt-get install -y --no-install-recommends whois \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY src/ ./src
+COPY pyproject.toml poetry.lock* README.md /app/
+
+RUN pip install --no-cache-dir poetry==1.8.5
+
+RUN poetry install --no-interaction --no-ansi --without dev
+
+COPY . /app
+
+EXPOSE 8001
 
 CMD ["poetry", "run", "python", "src/domain_checker/main.py"]
