@@ -1,14 +1,23 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+import uvicorn
 import json
 import datetime
 import uuid
 import asyncio
 import time
+from os import environ
 
 from models import DomainRequest, DomainResponse, SuggestRequest, Metric
-from utils import SessionLocal, get_or_update_domain, query_name_suggestor
+from utils import (
+    SessionLocal,
+    get_or_update_domain,
+    query_name_suggestor,
+    check_services_connections,
+)
+
+BACKEND_PORT = int(environ.get("BACKEND_PORT"))
 
 app = FastAPI()
 
@@ -23,7 +32,11 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "message": "Single-table + tldextract backend is running"}
+    """
+    Health check endpoint.
+    """
+    services = check_services_connections()
+    return {"status": "ok", "message": "Backend is running", "services": services}
 
 
 @app.post("/v1/checkdomain", response_model=list[DomainResponse])
@@ -232,6 +245,5 @@ def make_sse_event(event_type: str, data) -> str:
 
 
 if __name__ == "__main__":
-    import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=BACKEND_PORT)

@@ -1,16 +1,30 @@
-import os
+from os import environ
 import datetime
 import requests
 import tldextract
-import dotenv
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models import Base, Domain
 
-dotenv.load_dotenv()
+DB_HOST = environ.get("DB_HOST")
+DB_PORT = int(environ.get("DB_PORT"))
+DB_USER = environ.get("DB_USER")
+DB_PASSWORD = environ.get("DB_PASSWORD")
 
-DATABASE_URL = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+DB_NAME = environ.get("DB_NAME")
+DOMAIN_CHECKER_HOST = environ.get("DOMAIN_CHECKER_HOST")
+DOMAIN_CHECKER_PORT = int(environ.get("DOMAIN_CHECKER_PORT"))
+DOMAIN_CHECKER_ENDPOINT = environ.get("DOMAIN_CHECKER_ENDPOINT")
+
+NAME_SUGGESTOR_HOST = environ.get("NAME_SUGGESTOR_HOST")
+NAME_SUGGESTOR_PORT = int(environ.get("NAME_SUGGESTOR_PORT"))
+NAME_SUGGESTOR_ENDPOINT = environ.get("NAME_SUGGESTOR_ENDPOINT")
+
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DOMAIN_CHECKER_URL = f"http://{DOMAIN_CHECKER_HOST}:{DOMAIN_CHECKER_PORT}/"
+NAME_SUGGESTOR_URL = f"http://{NAME_SUGGESTOR_HOST}:{NAME_SUGGESTOR_PORT}/"
+
 
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -47,7 +61,9 @@ def query_domain_checker(domains: list[str]) -> list[dict]:
       [ { "domain": "<domain>", "status": "<status>" }, ... ]
     """
     payload = {"domains": domains}
-    resp = requests.post(os.getenv("DOMAIN_CHECKER_URL"), json=payload, timeout=20)
+    resp = requests.post(
+        DOMAIN_CHECKER_URL + DOMAIN_CHECKER_ENDPOINT, json=payload, timeout=20
+    )
     resp.raise_for_status()
     return resp.json()
 
@@ -107,6 +123,35 @@ def query_name_suggestor(query: str) -> list[str]:
         { "suggestions": [...] }
     """
     payload = {"query": query}
-    resp = requests.post(os.getenv("NAME_SUGGESTOR_URL"), json=payload, timeout=60)
+    resp = requests.post(
+        NAME_SUGGESTOR_URL + NAME_SUGGESTOR_ENDPOINT, json=payload, timeout=60
+    )
     resp.raise_for_status()
     return resp.json().get("suggestions", [])
+
+
+def check_services_connections() -> str:
+    """
+    Check if the services are reachable.
+    """
+    services = []
+    try:
+        resp = requests.get(DOMAIN_CHECKER_URL + "health", timeout=5)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(msg := f"Error connecting to domain-checker: {e}")
+        print(f"Used URL: {DOMAIN_CHECKER_URL + 'health'}")
+        services.append(msg)
+
+    try:
+        resp = requests.get(NAME_SUGGESTOR_URL + "health", timeout=5)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(msg := f"Error connecting to name-suggestor: {e}")
+        print(f"Used URL: {NAME_SUGGESTOR_URL + 'health'}")
+        services.append(msg)
+
+    if not services:
+        return "All services are reachable"
+
+    return "Some services are unreachable: " + ", ".join(services)

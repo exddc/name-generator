@@ -1,16 +1,26 @@
 version: '3.9'
 
 x-common-environment: &common-environment
+    DB_HOST: ${DB_HOST}
     DB_USER: ${DB_USER}
     DB_PASSWORD: ${DB_PASSWORD}
     DB_NAME: ${DB_NAME}
     DB_PORT: ${DB_PORT:-5432}
+    # Domain Checker
+    DOMAIN_CHECKER_HOST: ${DOMAIN_CHECKER_HOST:-host.docker.internal}
     DOMAIN_CHECKER_PORT: ${DOMAIN_CHECKER_PORT:-8001}
     DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
+    DOMAIN_CHECKER_ENDPOINT: ${DOMAIN_CHECKER_ENDPOINT}
+    # Name Suggestor
+    NAME_SUGGESTOR_HOST: ${NAME_SUGGESTOR_HOST:-host.docker.internal}
+    NAME_SUGGESTOR_PORT: ${NAME_SUGGESTOR_PORT:-8002}
+    NAME_SUGGESTOR_ENDPOINT: ${NAME_SUGGESTOR_ENDPOINT}
     GROQ_API_KEY: ${GROQ_API_KEY}
     NUMBER_OF_SUGGESTIONS: ${NUMBER_OF_SUGGESTIONS:-25}
     LLM_MODEL: ${LLM_MODEL:-llama-3.2-3b-preview}
-    NAME_SUGGESTOR_PORT: ${NAME_SUGGESTOR_PORT:-8002}
+    # Backend
+    BACKEND_HOST: ${BACKEND_HOST:-host.docker.internal}
+    BACKEND_PORT: ${BACKEND_PORT:-8000}
 
 services:
     domain_checker:
@@ -42,6 +52,20 @@ services:
         profiles:
             - dev
             - prod
+
+    backend:
+        build:
+            context: ./backend
+            dockerfile: Dockerfile
+        container_name: backend
+        environment: *common-environment
+        networks:
+            - domain_generator_network
+        profiles:
+            - dev
+            - prod
+        ports:
+            - 8000:8000
 
     postgres:
         image: postgres:latest

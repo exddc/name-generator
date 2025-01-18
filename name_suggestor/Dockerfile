@@ -20,6 +20,6 @@ RUN poetry install --no-interaction --no-ansi --without dev
 
 COPY . /app
 
-EXPOSE 8002
+EXPOSE ${NAME_SUGGESTOR_PORT}
 
 CMD ["poetry", "run", "python", "src/name_suggestor/main.py"]

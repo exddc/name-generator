@@ -19,6 +19,6 @@ RUN poetry install --no-interaction --no-ansi --without dev
 
 COPY . /app
 
-EXPOSE ${PORT}
+EXPOSE ${DOMAIN_CHECKER_PORT}
 
 CMD ["poetry", "run", "python", "src/domain_checker/main.py"]
