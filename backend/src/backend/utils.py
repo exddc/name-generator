@@ -10,7 +10,7 @@ from models import Base, Domain
 
 dotenv.load_dotenv()
 
-DATABASE_URL = f"postgresql://{os.getenv("DB_USER")}:{os.getenv("DB_PASSWORD")}@{os.getenv("DB_HOST")}:{os.getenv("DB_PORT")}/{os.getenv("DB_NAME")}"
+DATABASE_URL = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
 
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -34,9 +34,10 @@ def extract_domain_tld(full_domain: str):
     # e.g. for 'https://sub.example.co.uk' => subdomain='sub', domain='example', suffix='co.uk'
 
     domain_name = extracted.domain
-    tld = extracted.suffix 
+    tld = extracted.suffix
 
     return domain_name, tld
+
 
 def query_domain_checker(domains: list[str]) -> list[dict]:
     """
@@ -50,6 +51,7 @@ def query_domain_checker(domains: list[str]) -> list[dict]:
     resp.raise_for_status()
     return resp.json()
 
+
 def get_or_update_domain(session, full_domain: str):
     """
     1. Extract domain_name, tld using tldextract.
@@ -61,7 +63,9 @@ def get_or_update_domain(session, full_domain: str):
     domain_name, tld = extract_domain_tld(full_domain)
 
     try:
-        existing = session.query(Domain).filter_by(domain_name=domain_name, tld=tld).first()
+        existing = (
+            session.query(Domain).filter_by(domain_name=domain_name, tld=tld).first()
+        )
     except Exception as e:
         print(f"Error while querying domain: {e}")
         existing = None
@@ -93,6 +97,7 @@ def get_or_update_domain(session, full_domain: str):
         session.add(new_domain)
         session.commit()
         return new_domain
+
 
 def query_name_suggestor(query: str) -> list[str]:
     """
