@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { FlipWords } from '@/components/ui/flip-words';
 import Typewriter from '@/components/fancy/typewriter';
 import { FaqSection } from '@/components/ui/faq';
 import ClientTweetCard from '@/components/magicui/client-tweet-card';
+
+const BACKEND_HOST = process.env.BACKEND_HOST;
+const BACKEND_PORT = process.env.BACKEND_PORT;
+const BACKEND_SUGGEST_ENDPOINT = process.env.BACKEND_SUGGEST_ENDPOINT;
 
 interface DomainData {
     domain: string;
@@ -104,7 +105,7 @@ export default function Home() {
         setDomains([]);
         setErrorMsg(null);
 
-        const url = `http://0.0.0.0:8000/v1/suggest_stream?query=${encodeURIComponent(
+        const url = `http://${BACKEND_HOST}:${BACKEND_PORT}/${BACKEND_SUGGEST_ENDPOINT}?query=${encodeURIComponent(
             userInput
         )}`;
 
@@ -139,9 +140,9 @@ export default function Home() {
             }
         });
 
-        evtSource.addEventListener('error', (e: any) => {
-            console.error('SSE error event:', e.data);
-            setErrorMsg(e.data ?? 'Unknown error occurred.');
+        evtSource.addEventListener('error', () => {
+            console.error('SSE error event');
+            setErrorMsg('Unknown error occurred.');
         });
 
         evtSource.addEventListener('done', (e: MessageEvent) => {
@@ -424,10 +425,11 @@ export default function Home() {
                     </h2>
                     <p className="font-light text-balance">
                         Describe your app, service, or company idea in the
-                        search bar. Click "Go" and our AI will generate
-                        available domain names based on your input. You get 5
-                        available domain names and more that are registered for
-                        inspiration or to help you find similar names.
+                        search bar. Click &quot;Go&quot; and our AI will
+                        generate available domain names based on your input. You
+                        get 5 available domain names and more that are
+                        registered for inspiration or to help you find similar
+                        names.
                     </p>
                 </div>
             </div>
@@ -439,10 +441,10 @@ export default function Home() {
                     <p className="font-light text-balance">
                         I just wanted a good domain for another project I was
                         working on. I tried a few domain generators but they
-                        were all slow and didn't give me the results I wanted
-                        plus most of them were terrible to use and look at. So I
-                        did the only logical thing and built my own. It's fast,
-                        simple, and gives me the results I need.
+                        were all slow and didn&apos;t give me the results I
+                        wanted plus most of them were terrible to use and look
+                        at. So I did the only logical thing and built my own.
+                        It&apos;s fast, simple, and gives me the results I need.
                     </p>
                 </div>
                 <div className="max-w-sm h-fit">

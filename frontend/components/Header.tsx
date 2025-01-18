@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 
 export default function Header() {
     const [showBorder, setShowBorder] = useState(false);
@@ -31,19 +32,19 @@ export default function Header() {
                 }
             >
                 <div className="flex flex-row justify-between">
-                    <a
+                    <Link
                         href="/"
                         className="font-normal text-sm justify-center items-center flex"
                     >
                         Domain Generator
-                    </a>
+                    </Link>
                     <div className="flex flex-row font-normal text-sm gap-2 tracking-tight">
-                        <a
+                        <Link
                             href="/login"
                             className="bg-black text-white px-3 py-[2px] rounded-[5px] border border-black flex items-center"
                         >
                             Login
-                        </a>
+                        </Link>
                         {/*                         <a
                             href="/"
                             className="bg-white text-black px-3 py-[2px] rounded-[5px] border border-black flex items-center"

@@ -209,7 +209,7 @@ export const TweetMedia = ({ tweet }: { tweet: EnrichedTweet }) => (
         )}
         {!tweet.video &&
             !tweet.photos &&
-            // @ts-ignore
+            // @ts-expect-error - This is a bug in the react-tweet library
             tweet?.card?.binding_values?.thumbnail_image_large?.image_value
                 .url &&
             {
@@ -228,7 +228,7 @@ export const TweetMedia = ({ tweet }: { tweet: EnrichedTweet }) => (
 
 export const MagicTweet = ({
     tweet,
-    components,
+    components, // eslint-disable-line @typescript-eslint/no-unused-vars
     className,
     ...props
 }: {

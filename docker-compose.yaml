@@ -67,6 +67,20 @@ services:
         ports:
             - 8000:8000
 
+    frontend:
+        build:
+            context: ./frontend
+            dockerfile: Dockerfile
+        container_name: frontend
+        environment: *common-environment
+        networks:
+            - domain_generator_network
+        profiles:
+            - dev
+            - prod
+        ports:
+            - 3000:3000
+
     postgres:
         image: postgres:latest
         container_name: postgres_service
