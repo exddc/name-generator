@@ -1,20 +1,42 @@
 version: '3.9'
 
+x-common-environment: &common-environment
+    DB_USER: ${DB_USER}
+    DB_PASSWORD: ${DB_PASSWORD}
+    DB_NAME: ${DB_NAME}
+    DB_PORT: ${DB_PORT:-5432}
+    DOMAIN_CHECKER_PORT: ${DOMAIN_CHECKER_PORT:-8001}
+    DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
+    GROQ_API_KEY: ${GROQ_API_KEY}
+    NUMBER_OF_SUGGESTIONS: ${NUMBER_OF_SUGGESTIONS:-25}
+    LLM_MODEL: ${LLM_MODEL:-llama-3.2-3b-preview}
+    NAME_SUGGESTOR_PORT: ${NAME_SUGGESTOR_PORT:-8002}
+
 services:
     domain_checker:
         build:
             context: ./domain_checker
-        container_name: domain_checker_service
-        ports:
-            - '${DOMAIN_CHECKER_PORT:-8000}:8000'
-        environment:
-            - DB_HOST=postgres_service
-            - DB_PORT=${DB_PORT:-5432}
-            - DB_USER=${DB_USER:-postgres}
-            - DB_PASSWORD=${DB_PASSWORD:-password}
-            - DB_NAME=${DB_NAME:-domain_db}
-        depends_on:
-            - postgres
+            dockerfile: Dockerfile
+            args:
+                - DOMAIN_CHECKER_PORT=${DOMAIN_CHECKER_PORT:-8001}
+                - DOMAIN_CHECKER_DNS_TIMEOUT=${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
+        container_name: domain_checker
+        networks:
+            - domain_generator_network
+        profiles:
+            - dev
+            - prod
+
+    name_suggestor:
+        build:
+            context: ./name_suggestor
+            dockerfile: Dockerfile
+            args:
+                - NAME_SUGGESTOR_PORT=${NAME_SUGGESTOR_PORT:-8002}
+                - GROQ_API_KEY=${GROQ_API_KEY}
+                - NUMBER_OF_SUGGESTIONS=${NUMBER_OF_SUGGESTIONS:-25}
+                - LLM_MODEL=${LLM_MODEL:-llama-3.2-3b-preview}
+        container_name: name_suggestor
         networks:
             - domain_generator_network
         profiles:
@@ -34,6 +56,8 @@ services:
             - postgres_data:/var/lib/postgresql/data
         networks:
             - domain_generator_network
+        profiles:
+            - infra
 
 networks:
     domain_generator_network:

@@ -1,24 +1,19 @@
 import os
 import json
+import uvicorn
 from typing import List
 from fastapi import FastAPI
-from pydantic import BaseModel
-import dotenv
 import groq
 
-dotenv.load_dotenv()
+from models import SuggestRequest
 
-client = groq.Groq(
-    api_key=os.environ.get("GROQ_API_KEY"),
-)
+GROK_API_KEY = os.environ.get("GROQ_API_KEY")
+NUMBER_OF_SUGGESTIONS = int(os.environ.get("NUMBER_OF_SUGGESTIONS", 25))
+LLM_MODEL = os.environ.get("MODEL", "llama-3.2-3b-preview")
+PORT = int(os.environ.get("PORT", 8002))
 
+client = groq.Groq(api_key=GROK_API_KEY)
 app = FastAPI()
-
-NUMBER_OF_SUGGESTIONS = 25
-
-
-class SuggestRequest(BaseModel):
-    query: str
 
 
 def get_suggestions_from_llm(user_input: str) -> List[str]:
@@ -59,7 +54,7 @@ Example output: ["mydomain.com", "anotheridea.io"]
                     "content": prompt,
                 },
             ],
-            model=os.environ.get("MODEL", "llama-3.2-3b-preview"),
+            model=LLM_MODEL,
         )
 
         content = response.choices[0].message.content.strip()
@@ -117,6 +112,4 @@ def suggest_domains(request: SuggestRequest):
 
 
 if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8002)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
