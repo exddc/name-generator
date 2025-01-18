@@ -1,4 +1,5 @@
 # Entry point for the domain_checker service
+import uvicorn
 from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -6,6 +7,10 @@ import subprocess
 import socket
 from typing import List
 import concurrent.futures
+from os import environ
+
+PORT = int(environ.get("PORT", 8000))
+DNS_TIMEOUT = float(environ.get("DNS_TIMEOUT", 3.0))
 
 app = FastAPI()
 
@@ -23,7 +28,6 @@ FREE_KEYWORDS = [
 ]
 
 # Common strings indicating that the domain is registered
-# (presence of a registrar, domain creation/expiry info, name servers, etc.)
 REGISTERED_KEYWORDS = [
     "domain name:",
     "registrar:",
@@ -68,12 +72,11 @@ def check_domain(domain: str) -> str:
     :param domain: Domain name to check (e.g. "example.com")
     :return: "registered", "free", or "non conclusive"
     """
-    # Normalize the input domain
     domain = normalize_domain(domain)
 
-    # 1. Try DNS resolution with a 3-second timeout
+    # DNS resolution
     try:
-        ip = dns_lookup_with_timeout(domain, timeout=3.0)
+        ip = dns_lookup_with_timeout(domain, timeout=DNS_TIMEOUT)
         # If DNS resolution succeeds, it's likely registered
         return "registered"
     except socket.gaierror:
@@ -81,14 +84,12 @@ def check_domain(domain: str) -> str:
         pass
     except socket.timeout:
         # Timed out during DNS resolution
-        # Handle as you see fit:
-        # - Maybe treat this as "non conclusive" or retry
         return "non conclusive"
 
-    # 2. Try a WHOIS lookup
+    # WHOIS lookup
     try:
         result = subprocess.run(
-            ["whois", domain], capture_output=True, text=True, timeout=3.0
+            ["whois", domain], capture_output=True, text=True, timeout=DNS_TIMEOUT
         )
         whois_output = result.stdout.lower()
 
@@ -144,6 +145,4 @@ def dns_lookup_with_timeout(domain: str, timeout: float = 3.0) -> str:
 
 
 if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

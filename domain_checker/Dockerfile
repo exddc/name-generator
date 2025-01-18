@@ -1,5 +1,11 @@
 FROM python:3.11-slim
 
+ARG DOMAIN_CHECKER_PORT
+ARG DOMAIN_CHECKER_DNS_TIMEOUT
+
+ENV PORT=${DOMAIN_CHECKER_PORT}
+ENV DNS_TIMEOUT=${DOMAIN_CHECKER_DNS_TIMEOUT}
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends whois \
@@ -13,6 +19,6 @@ RUN poetry install --no-interaction --no-ansi --without dev
 
 COPY . /app
 
-EXPOSE 8001
+EXPOSE ${PORT}
 
 CMD ["poetry", "run", "python", "src/domain_checker/main.py"]
