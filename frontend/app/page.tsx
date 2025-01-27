@@ -5,10 +5,10 @@ import { FlipWords } from '@/components/ui/flip-words';
 import Typewriter from '@/components/fancy/typewriter';
 import { FaqSection } from '@/components/ui/faq';
 import ClientTweetCard from '@/components/magicui/client-tweet-card';
+import { ThumbsUp, ThumbsDown } from 'lucide-react';
 
-const BACKEND_HOST = process.env.BACKEND_HOST;
-const BACKEND_PORT = process.env.BACKEND_PORT;
-const BACKEND_SUGGEST_ENDPOINT = process.env.BACKEND_SUGGEST_ENDPOINT;
+const NEXT_PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL;
+const NEXT_PUBLIC_SUGGEST_ENDPOINT = process.env.NEXT_PUBLIC_SUGGEST_ENDPOINT;
 
 interface DomainData {
     domain: string;
@@ -105,7 +105,7 @@ export default function Home() {
         setDomains([]);
         setErrorMsg(null);
 
-        const url = `http://${BACKEND_HOST}:${BACKEND_PORT}/${BACKEND_SUGGEST_ENDPOINT}?query=${encodeURIComponent(
+        const url = `${NEXT_PUBLIC_API_URL}/${NEXT_PUBLIC_SUGGEST_ENDPOINT}?query=${encodeURIComponent(
             userInput
         )}`;
 
@@ -163,7 +163,18 @@ export default function Home() {
         registeredDomains.length > 0 ||
         unknownDomains.length > 0;
 
+    const handleDomainFeedback = (domain: string, feedback: boolean) => {
+        fetch(`${NEXT_PUBLIC_API_URL}/v1/feedback`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ domain, feedback }),
+        });
+    };
+
     function renderDomainRow(item: DomainData, index: number) {
+        const [feedback, setFeedback] = useState<boolean | null>(null);
         return (
             <li
                 key={index}
@@ -193,6 +204,36 @@ export default function Home() {
                             ? 'Registered'
                             : 'Unknown'}
                     </p>
+                    <div>
+                        <button
+                            className={
+                                'pl-4 pr-2 border-l border-[#D9D9D9] bg-white hover:text-black' +
+                                (feedback === true
+                                    ? ' text-green-500'
+                                    : ' text-neutral-500')
+                            }
+                            onClick={() => {
+                                handleDomainFeedback(item.domain, true);
+                                setFeedback(true);
+                            }}
+                        >
+                            <ThumbsUp size={16} strokeWidth={1.5} />
+                        </button>
+                        <button
+                            className={
+                                'border-[#D9D9D9] bg-white hover:text-black' +
+                                (feedback === false
+                                    ? ' text-red-500'
+                                    : ' text-neutral-500')
+                            }
+                            onClick={() => {
+                                handleDomainFeedback(item.domain, false);
+                                setFeedback(false);
+                            }}
+                        >
+                            <ThumbsDown size={16} strokeWidth={1.5} />
+                        </button>
+                    </div>
                     {/* <button
                         className="pl-4 pr-2 border-l border-[#D9D9D9] bg-white"
                         disabled={isLoading}

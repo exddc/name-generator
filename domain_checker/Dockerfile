@@ -1,11 +1,5 @@
 FROM python:3.11-slim
 
-ARG DOMAIN_CHECKER_PORT
-ARG DOMAIN_CHECKER_DNS_TIMEOUT
-
-ENV PORT=${DOMAIN_CHECKER_PORT}
-ENV DNS_TIMEOUT=${DOMAIN_CHECKER_DNS_TIMEOUT}
-
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends whois \

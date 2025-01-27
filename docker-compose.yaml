@@ -1,56 +1,30 @@
 version: '3.9'
 
-x-common-environment: &common-environment
-    DB_HOST: ${DB_HOST}
-    DB_USER: ${DB_USER}
-    DB_PASSWORD: ${DB_PASSWORD}
-    DB_NAME: ${DB_NAME}
-    DB_PORT: ${DB_PORT:-5432}
-    # Domain Checker
-    DOMAIN_CHECKER_HOST: ${DOMAIN_CHECKER_HOST:-host.docker.internal}
-    DOMAIN_CHECKER_PORT: ${DOMAIN_CHECKER_PORT:-8001}
-    DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
-    DOMAIN_CHECKER_ENDPOINT: ${DOMAIN_CHECKER_ENDPOINT}
-    # Name Suggestor
-    NAME_SUGGESTOR_HOST: ${NAME_SUGGESTOR_HOST:-host.docker.internal}
-    NAME_SUGGESTOR_PORT: ${NAME_SUGGESTOR_PORT:-8002}
-    NAME_SUGGESTOR_ENDPOINT: ${NAME_SUGGESTOR_ENDPOINT}
-    GROQ_API_KEY: ${GROQ_API_KEY}
-    NUMBER_OF_SUGGESTIONS: ${NUMBER_OF_SUGGESTIONS:-25}
-    LLM_MODEL: ${LLM_MODEL:-llama-3.2-3b-preview}
-    # Backend
-    BACKEND_HOST: ${BACKEND_HOST:-host.docker.internal}
-    BACKEND_PORT: ${BACKEND_PORT:-8000}
-
 services:
     domain_checker:
         build:
             context: ./domain_checker
             dockerfile: Dockerfile
-            args:
-                - DOMAIN_CHECKER_PORT=${DOMAIN_CHECKER_PORT:-8001}
-                - DOMAIN_CHECKER_DNS_TIMEOUT=${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
         container_name: domain_checker
+        env_file:
+            - .env
         networks:
             - domain_generator_network
         profiles:
-            - dev
+            - dev_backend
             - prod
 
     name_suggestor:
         build:
             context: ./name_suggestor
             dockerfile: Dockerfile
-            args:
-                - NAME_SUGGESTOR_PORT=${NAME_SUGGESTOR_PORT:-8002}
-                - GROQ_API_KEY=${GROQ_API_KEY}
-                - NUMBER_OF_SUGGESTIONS=${NUMBER_OF_SUGGESTIONS:-25}
-                - LLM_MODEL=${LLM_MODEL:-llama-3.2-3b-preview}
         container_name: name_suggestor
+        env_file:
+            - .env
         networks:
             - domain_generator_network
         profiles:
-            - dev
+            - dev_backend
             - prod
 
     backend:
@@ -58,11 +32,12 @@ services:
             context: ./backend
             dockerfile: Dockerfile
         container_name: backend
-        environment: *common-environment
+        env_file:
+            - .env
         networks:
             - domain_generator_network
         profiles:
-            - dev
+            - dev_backend
             - prod
         ports:
             - 8000:8000
@@ -71,12 +46,16 @@ services:
         build:
             context: ./frontend
             dockerfile: Dockerfile
+            args:
+                - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+                - NEXT_PUBLIC_SUGGEST_ENDPOINT=${NEXT_PUBLIC_SUGGEST_ENDPOINT}
         container_name: frontend
-        environment: *common-environment
+        env_file:
+            - .env
         networks:
             - domain_generator_network
         profiles:
-            - dev
+            - dev_frontend
             - prod
         ports:
             - 3000:3000

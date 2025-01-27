@@ -9,12 +9,20 @@ import asyncio
 import time
 from os import environ
 
-from models import DomainRequest, DomainResponse, SuggestRequest, Metric
+from models import (
+    DomainRequest,
+    DomainResponse,
+    SuggestRequest,
+    Metric,
+    Domain,
+    FeedbackRequest,
+)
 from utils import (
     SessionLocal,
     get_or_update_domain,
     query_name_suggestor,
     check_services_connections,
+    extract_domain_tld,
 )
 
 BACKEND_PORT = int(environ.get("BACKEND_PORT"))
@@ -231,6 +239,57 @@ def suggest_sse(request: Request, query: str) -> StreamingResponse:
                 session.close()
 
     return StreamingResponse(sse_event_stream(), media_type="text/event-stream")
+
+
+@app.post("/v1/feedback")
+def feedback(feedback_req: FeedbackRequest):
+    """
+    Receives a domain and a boolean feedback value.
+    If feedback is True, increment 'upvotes'; if False, increment 'downvotes'.
+    If the domain doesn't exist in the DB, create it with 0 up/downvotes first.
+    """
+    session: Session = SessionLocal()
+
+    try:
+        domain_name, tld = extract_domain_tld(feedback_req.domain)
+        # Attempt to find the existing domain in DB
+        domain_record = (
+            session.query(Domain).filter_by(domain_name=domain_name, tld=tld).first()
+        )
+
+        # If not found, optionally create a new record
+        # (status='unknown' or however you want to handle it):
+        if not domain_record:
+            """domain_record = Domain(
+                domain_name=domain_name,
+                tld=tld,
+                status="unknown",
+                last_checked=datetime.datetime.utcnow(),
+            )
+            domain_record.upvotes = 0
+            domain_record.downvotes = 0
+            session.add(domain_record)"""
+            raise ValueError(f"Domain '{feedback_req.domain}' not found in DB.")
+
+        # Update feedback counters
+        if feedback_req.feedback:
+            domain_record.upvotes += 1
+        else:
+            domain_record.downvotes += 1
+
+        session.commit()
+
+        return {
+            "domain": feedback_req.domain,
+            "status": "Feedback received.",
+        }
+
+    except Exception as e:
+        session.rollback()
+        print(f"Error in /v1/feedback: {e}")
+        raise HTTPException(status_code=500, detail="Error processing feedback.") from e
+    finally:
+        session.close()
 
 
 def make_sse_event(event_type: str, data) -> str:

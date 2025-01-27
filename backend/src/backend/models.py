@@ -36,6 +36,8 @@ class Domain(Base):
         nullable=False,
         default=datetime.datetime.utcnow(),
     )
+    upvotes = Column(Integer, default=0)
+    downvotes = Column(Integer, default=0)
 
     __table_args__ = (
         PrimaryKeyConstraint("domain_name", "tld"),  # Composite primary key
@@ -92,3 +94,8 @@ class DomainResponse(BaseModel):
 
 class SuggestRequest(BaseModel):
     query: str
+
+
+class FeedbackRequest(BaseModel):
+    domain: str
+    feedback: bool  # True = upvote, False = downvote

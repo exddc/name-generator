@@ -9,8 +9,8 @@ from typing import List
 import concurrent.futures
 from os import environ
 
-PORT = int(environ.get("PORT", 8000))
-DNS_TIMEOUT = float(environ.get("DNS_TIMEOUT", 3.0))
+PORT = int(environ.get("DOMAIN_CHECKER_PORT", 8000))
+DNS_TIMEOUT = float(environ.get("DOMAIN_CHECKER_DNS_TIMEOUT", 3.0))
 
 app = FastAPI()
 
