@@ -199,11 +199,11 @@ export default function Home() {
                     <p
                         className={
                             (item.status === 'free'
-                                ? 'bg-green-300 border-green-800'
+                                ? 'bg-green-500/30 border-green-700'
                                 : item.status === 'registered'
-                                ? 'bg-red-300 border-red-800'
-                                : 'bg-yellow-200 border-yellow-800') +
-                            ' text-black font-semibold text-xs border px-2 flex items-center h-fit rounded-xl'
+                                ? 'bg-red-500/30 border-red-700'
+                                : 'bg-yellow-500/30 border-yellow-700') +
+                            ' text-black font-semibold text-[0.65rem] border px-2 flex items-center h-[18px] rounded-xl'
                         }
                     >
                         {item.status === 'free'
@@ -215,29 +215,29 @@ export default function Home() {
                     <div>
                         <button
                             className={
-                                'pl-4 pr-2 border-l border-[#D9D9D9] bg-white hover:text-black' +
+                                'pl-4 pr-2 border-l border-[#D9D9D9] bg-white' +
                                 (feedback === true
                                     ? ' text-green-500'
-                                    : ' text-neutral-500')
+                                    : ' text-neutral-500 hover:text-blacks')
                             }
                             onClick={() => {
                                 handleDomainFeedback(item.domain, true);
                             }}
                         >
-                            <ThumbsUp size={16} strokeWidth={1.5} />
+                            <ThumbsUp size={14} strokeWidth={1.5} />
                         </button>
                         <button
                             className={
-                                'border-[#D9D9D9] bg-white hover:text-black' +
+                                'border-[#D9D9D9] bg-white' +
                                 (feedback === false
                                     ? ' text-red-500'
-                                    : ' text-neutral-500')
+                                    : ' text-neutral-500 hover:text-black')
                             }
                             onClick={() => {
                                 handleDomainFeedback(item.domain, false);
                             }}
                         >
-                            <ThumbsDown size={16} strokeWidth={1.5} />
+                            <ThumbsDown size={14} strokeWidth={1.5} />
                         </button>
                     </div>
                     {/* <button
