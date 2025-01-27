@@ -9,6 +9,7 @@ import { ThumbsUp, ThumbsDown } from 'lucide-react';
 
 const NEXT_PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL;
 const NEXT_PUBLIC_SUGGEST_ENDPOINT = process.env.NEXT_PUBLIC_SUGGEST_ENDPOINT;
+const NEXT_PUBLIC_FEEDBACK_ENDPOINT = process.env.NEXT_PUBLIC_FEEDBACK_ENDPOINT;
 
 interface DomainData {
     domain: string;
@@ -164,7 +165,7 @@ export default function Home() {
         unknownDomains.length > 0;
 
     const handleDomainFeedback = (domain: string, feedback: boolean) => {
-        fetch(`${NEXT_PUBLIC_API_URL}/v1/feedback`, {
+        fetch(`${NEXT_PUBLIC_API_URL}/${NEXT_PUBLIC_FEEDBACK_ENDPOINT}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
