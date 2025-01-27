@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { Inter, Newsreader } from 'next/font/google';
 import './globals.css';
 import Header from '@/components/Header';
@@ -33,6 +34,11 @@ export default function RootLayout({
                 {children}
                 <Footer />
             </body>
+            <Script
+                defer
+                data-domain="domain-generator.timoweiss.me"
+                src="https://plausible.io/js/script.js"
+            ></Script>
         </html>
     );
 }
