@@ -10,9 +10,6 @@ services:
             - .env
         networks:
             - domain_generator_network
-        profiles:
-            - dev_backend
-            - prod
 
     name_suggestor:
         build:
@@ -23,9 +20,6 @@ services:
             - .env
         networks:
             - domain_generator_network
-        profiles:
-            - dev_backend
-            - prod
 
     backend:
         build:
@@ -36,9 +30,6 @@ services:
             - .env
         networks:
             - domain_generator_network
-        profiles:
-            - dev_backend
-            - prod
         ports:
             - 3001:3001
 
@@ -54,27 +45,8 @@ services:
             - .env
         networks:
             - domain_generator_network
-        profiles:
-            - dev_frontend
-            - prod
         ports:
             - 3000:3000
-
-    postgres:
-        image: postgres:latest
-        container_name: postgres_service
-        ports:
-            - '${DB_PORT:-5432}:5432'
-        environment:
-            POSTGRES_USER: ${DB_USER:-postgres}
-            POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
-            POSTGRES_DB: ${DB_NAME:-domain_db}
-        volumes:
-            - postgres_data:/var/lib/postgresql/data
-        networks:
-            - domain_generator_network
-        profiles:
-            - infra
 
 networks:
     domain_generator_network:
