@@ -16,12 +16,17 @@ interface DomainData {
     status: string;
 }
 
+type DomainFeedback = {
+    [domain: string]: boolean | undefined;
+};
+
 export default function Home() {
     const [userInput, setUserInput] = useState('');
     const [domains, setDomains] = useState<DomainData[]>([]);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [textAreaRows, setTextAreaRows] = useState(1);
+    const [domainFeedback, setDomainFeedback] = useState<DomainFeedback>({});
 
     const flipwords = ['app', 'service', 'company', 'idea', 'project'];
     const exampleDomains = [
@@ -172,10 +177,12 @@ export default function Home() {
             },
             body: JSON.stringify({ domain, feedback }),
         });
+
+        setDomainFeedback((prev) => ({ ...prev, [domain]: feedback }));
     };
 
     function renderDomainRow(item: DomainData, index: number) {
-        const [feedback, setFeedback] = useState<boolean | null>(null);
+        const feedback = domainFeedback[item.domain];
         return (
             <li
                 key={index}
@@ -215,7 +222,6 @@ export default function Home() {
                             }
                             onClick={() => {
                                 handleDomainFeedback(item.domain, true);
-                                setFeedback(true);
                             }}
                         >
                             <ThumbsUp size={16} strokeWidth={1.5} />
@@ -229,7 +235,6 @@ export default function Home() {
                             }
                             onClick={() => {
                                 handleDomainFeedback(item.domain, false);
-                                setFeedback(false);
                             }}
                         >
                             <ThumbsDown size={16} strokeWidth={1.5} />
@@ -299,6 +304,12 @@ export default function Home() {
                             className="w-full outline-none bg-transparent pr-4"
                             rows={textAreaRows}
                             style={{ resize: 'none' }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSuggestStream(e);
+                                }
+                            }}
                         />
                         <button
                             type="submit"
