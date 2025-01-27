@@ -10,6 +10,9 @@ services:
             - .env
         networks:
             - domain_generator_network
+        profiles:
+            - dev_backend
+            - prod
 
     name_suggestor:
         build:
@@ -20,6 +23,9 @@ services:
             - .env
         networks:
             - domain_generator_network
+        profiles:
+            - dev_backend
+            - prod
 
     backend:
         build:
@@ -30,8 +36,9 @@ services:
             - .env
         networks:
             - domain_generator_network
-        ports:
-            - 3001:3001
+        profiles:
+            - dev_backend
+            - prod
 
     frontend:
         build:
@@ -45,8 +52,9 @@ services:
             - .env
         networks:
             - domain_generator_network
-        ports:
-            - 3000:3000
+        profiles:
+            - dev_frontend
+            - prod
 
 networks:
     domain_generator_network:
