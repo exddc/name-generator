@@ -43,7 +43,8 @@ def health():
     """
     Health check endpoint.
     """
-    services = check_services_connections()
+    session = SessionLocal()
+    services = check_services_connections(session)
     return {"status": "ok", "message": "Backend is running", "services": services}
 
 

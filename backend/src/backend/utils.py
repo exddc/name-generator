@@ -125,7 +125,7 @@ def query_name_suggestor(query: str) -> list[str]:
     return resp.json().get("suggestions", [])
 
 
-def check_services_connections() -> str:
+def check_services_connections(session) -> str:
     """
     Check if the services are reachable.
     """
@@ -144,6 +144,12 @@ def check_services_connections() -> str:
     except requests.exceptions.RequestException as e:
         print(msg := f"Error connecting to name-suggestor: {e}")
         print(f"Used URL: {NAME_SUGGESTOR_URL + '/health'}")
+        services.append(msg)
+
+    try:
+        session.query(Domain).first()
+    except Exception as e:
+        print(msg := f"Error connecting to DB: {e}")
         services.append(msg)
 
     if not services:
