@@ -131,19 +131,19 @@ def check_services_connections(session) -> str:
     """
     services = []
     try:
-        resp = requests.get(DOMAIN_CHECKER_URL + "/health", timeout=5)
+        resp = requests.get(DOMAIN_CHECKER_URL + "health", timeout=5)
         resp.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(msg := f"Error connecting to domain-checker: {e}")
-        print(f"Used URL: {DOMAIN_CHECKER_URL + '/health'}")
+        print(f"Used URL: {DOMAIN_CHECKER_URL + 'health'}")
         services.append(msg)
 
     try:
-        resp = requests.get(NAME_SUGGESTOR_URL + "/health", timeout=5)
+        resp = requests.get(NAME_SUGGESTOR_URL + "health", timeout=5)
         resp.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(msg := f"Error connecting to name-suggestor: {e}")
-        print(f"Used URL: {NAME_SUGGESTOR_URL + '/health'}")
+        print(f"Used URL: {NAME_SUGGESTOR_URL + 'health'}")
         services.append(msg)
 
     try:
