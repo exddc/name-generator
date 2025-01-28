@@ -32,15 +32,15 @@ Step 1: First identify relevant keywords, locations, or business types in the us
 Step 2: Generate a total of {NUMBER_OF_SUGGESTIONS} unique, memorable, and professional-sounding domain names for each of the identified keywords, locations, or business types.
 
 Key considerations:
-1. **Prioritize Country-Specific TLDs**: If the user's input includes a specific country or region (e.g., "central Munich"), primarily suggest domain names using the corresponding country-specific TLDs (e.g., .de for Germany).
+1. **Prioritize Country-Specific TLDs**: If the user's input includes a specific country or region, primarily suggest domain names using the corresponding country-specific TLDs.
 2. **Avoid Irrelevant TLDs**: Do not suggest TLDs like .io or .tech unless the user's input specifically relates to technology startups or similar fields.
-3. **Geographical Relevance**: Incorporate location-based keywords (e.g., "Munich" or "central Munich") into the domain names to make them more targeted and meaningful for local customers.
-4. **Avoid Domain Variations**: Do not generate variations of the same domain name with different TLDs (e.g., avoid suggesting both "munichwoodworks.de" and "munichwoodworks.io").
-5. **Ensure Relevance**: Generate domain names that are directly relevant to the user's input, focusing on the local context and business type (e.g., woodworking shop).
+3. **Geographical Relevance**: Incorporate location-based keywords into the domain names to make them more targeted and meaningful for local customers.
+4. **Avoid Domain Variations**: Do not generate variations of the same domain name with different TLDs.
+5. **Ensure Relevance**: Generate domain names that are directly relevant to the user's input, focusing on the local context and business type.
 
 Return ONLY a JSON array of domain names (strings) with no extra commentary.
 
-Example output: ["mydomain.com", "anotheridea.io"]
+Example output: ["mydomain.com", "anotheridea.co"]
     """.strip()
 
     try:
