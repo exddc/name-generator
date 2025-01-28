@@ -142,6 +142,7 @@ def suggest_sse(request: Request, query: str) -> StreamingResponse:
         # NEW: a list to keep all error messages
         error_messages = []
 
+        print(f"New SSE request for query: {query}")
         try:
             while free_found < 5:
                 # measure how long the suggestor takes
@@ -155,6 +156,8 @@ def suggest_sse(request: Request, query: str) -> StreamingResponse:
                     return
 
                 suggestions_count += len(suggestions)
+                print(f"Got {len(suggestions)} new suggestions.")
+                print(f"Total suggestions so far: {suggestions_count}")
 
                 for suggested_domain in suggestions:
                     check_start = time.perf_counter()
