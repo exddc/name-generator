@@ -38,7 +38,13 @@ export default function Header() {
                     >
                         Domain Generator
                     </Link>
-                    <div className="flex flex-row font-normal text-sm gap-2 tracking-tight">
+                    <div className="flex flex-row font-normal text-sm gap-12 tracking-tight items-center">
+                        <Link
+                            href="/top-domains"
+                            className="text-black hover:underline"
+                        >
+                            Top Rated Domains
+                        </Link>
                         <Link
                             href="/login"
                             className="bg-black text-white px-3 py-[2px] rounded-[5px] border border-black flex items-center"

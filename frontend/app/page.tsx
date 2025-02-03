@@ -6,10 +6,11 @@ import Typewriter from '@/components/fancy/typewriter';
 import { FaqSection } from '@/components/ui/faq';
 import ClientTweetCard from '@/components/magicui/client-tweet-card';
 import { ThumbsUp, ThumbsDown } from 'lucide-react';
+import { ButtonColorful } from '@/components/ui/button-colorful';
+import { handleDomainFeedback } from '@/lib/utils';
 
 const NEXT_PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL;
 const NEXT_PUBLIC_SUGGEST_ENDPOINT = process.env.NEXT_PUBLIC_SUGGEST_ENDPOINT;
-const NEXT_PUBLIC_FEEDBACK_ENDPOINT = process.env.NEXT_PUBLIC_FEEDBACK_ENDPOINT;
 
 interface DomainData {
     domain: string;
@@ -109,6 +110,7 @@ export default function Home() {
         e.preventDefault();
         setIsLoading(true);
         setDomains([]);
+        setDomainFeedback({});
         setErrorMsg(null);
 
         const url = `${NEXT_PUBLIC_API_URL}/${NEXT_PUBLIC_SUGGEST_ENDPOINT}?query=${encodeURIComponent(
@@ -169,18 +171,6 @@ export default function Home() {
         registeredDomains.length > 0 ||
         unknownDomains.length > 0;
 
-    const handleDomainFeedback = (domain: string, feedback: boolean) => {
-        fetch(`${NEXT_PUBLIC_API_URL}/${NEXT_PUBLIC_FEEDBACK_ENDPOINT}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ domain, feedback }),
-        });
-
-        setDomainFeedback((prev) => ({ ...prev, [domain]: feedback }));
-    };
-
     function renderDomainRow(item: DomainData, index: number) {
         const feedback = domainFeedback[item.domain];
         return (
@@ -221,7 +211,11 @@ export default function Home() {
                                     : ' text-neutral-500 hover:text-blacks')
                             }
                             onClick={() => {
-                                handleDomainFeedback(item.domain, true);
+                                handleDomainFeedback(
+                                    item.domain,
+                                    true,
+                                    setDomainFeedback
+                                );
                             }}
                         >
                             <ThumbsUp size={14} strokeWidth={1.5} />
@@ -234,7 +228,11 @@ export default function Home() {
                                     : ' text-neutral-500 hover:text-black')
                             }
                             onClick={() => {
-                                handleDomainFeedback(item.domain, false);
+                                handleDomainFeedback(
+                                    item.domain,
+                                    false,
+                                    setDomainFeedback
+                                );
                             }}
                         >
                             <ThumbsDown size={14} strokeWidth={1.5} />
@@ -410,13 +408,13 @@ export default function Home() {
             </div>
             <div className="w-full flex mt-48 align-middle justify-center transition-all duration-300 gap-6 px-6 2xl:px-0">
                 <div className="w-full max-w-2xl space-y-4 text-left mt-20">
-                    <h2 className="text-2xl font-semibold tracking-tight flex flex-col">
+                    <h3 className="text-2xl font-semibold tracking-tight flex flex-col">
                         <span>Get many suggestions</span>
                         <span>
                             and iterations for your
                             <FlipWords words={flipwords} />
                         </span>
-                    </h2>
+                    </h3>
                     <p className="font-light text-balance">
                         Choosing a great domain name is often the first step in
                         bringing your business, app, or project to life. Our AI
@@ -473,9 +471,9 @@ export default function Home() {
                     <span className="absolute inset-[-1000%] animate-[spin_5s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,#FFB9B9_0%,#E3CBE9_50%,#9FB3FF_100%)] -z-10 opacity-0 group-focus-within:opacity-100" />
                 </div>
                 <div className="w-full max-w-xl space-y-4 text-right">
-                    <h2 className="text-2xl font-semibold tracking-tight flex flex-col">
+                    <h3 className="text-2xl font-semibold tracking-tight flex flex-col">
                         Explain what your creating
-                    </h2>
+                    </h3>
                     <p className="font-light text-balance">
                         Describe your app, service, or company idea in the
                         search bar. Click &quot;Go&quot; and our AI will
@@ -488,9 +486,9 @@ export default function Home() {
             </div>
             <div className="w-full flex mt-48 align-middle justify-center transition-all duration-300 gap-6 px-6 2xl:px-0">
                 <div className="w-full max-w-2xl space-y-4 text-left">
-                    <h2 className="text-2xl font-semibold tracking-tight flex flex-col">
+                    <h3 className="text-2xl font-semibold tracking-tight flex flex-col">
                         How it started
-                    </h2>
+                    </h3>
                     <p className="font-light text-balance">
                         I just wanted a good domain for another project I was
                         working on. I tried a few domain generators but they
@@ -504,7 +502,29 @@ export default function Home() {
                     <ClientTweetCard id="1867792841566826710" />
                 </div>
             </div>
-            <div className="w-full flex mt-48 align-middle justify-center px-6 2xl:px-0">
+            <div className="w-full flex mt-64 align-middle justify-center transition-all duration-300 gap-6 px-6 2xl:px-0">
+                <div className="w-full max-w-2xl space-y-4 text-center">
+                    <h2 className="text-3xl font-semibold tracking-tight flex flex-col">
+                        <span>Explore and get Inspired by</span>
+                        <span>
+                            the Top Rated Domains that are still available
+                        </span>
+                    </h2>
+                    <p className="font-light text-balance">
+                        Discover the top-rated domain names that are still
+                        available to register. Get inspired by the creativity of
+                        others and find a domain that fits your brand and
+                        vision.
+                    </p>
+                    <ButtonColorful
+                        onClick={() => {
+                            window.location.href = '/top-domains';
+                        }}
+                        label="Top Domains"
+                    />
+                </div>
+            </div>
+            <div className="w-full flex mt-64 align-middle justify-center px-6 2xl:px-0">
                 <FaqSection
                     title="Frequently Asked Questions"
                     description="Everything you need to know about domains"

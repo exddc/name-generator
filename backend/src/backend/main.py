@@ -1,6 +1,7 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from typing import List, Optional
 import uvicorn
 import json
 import datetime
@@ -16,6 +17,8 @@ from models import (
     Metric,
     Domain,
     FeedbackRequest,
+    RatedDomainsResponse,
+    PaginatedDomainsResponse,
 )
 from utils import (
     SessionLocal,
@@ -292,6 +295,80 @@ def feedback(feedback_req: FeedbackRequest):
         session.rollback()
         print(f"Error in /v1/feedback: {e}")
         raise HTTPException(status_code=500, detail="Error processing feedback.") from e
+    finally:
+        session.close()
+
+
+@app.get("/v1/top_domains", response_model=PaginatedDomainsResponse)
+def top_domains(
+    page: int = Query(1, ge=1, description="Page number (starting at 1)"),
+    per_page: int = Query(10, ge=1, le=100, description="Number of items per page"),
+    filter: Optional[str] = Query(None, description="Filter domains by name"),
+    sort_by: Optional[str] = Query(
+        "upvotes", description="Sort by option: upvotes, alphabet, length"
+    ),
+    sort_order: Optional[str] = Query("desc", description="Sort order: asc or desc"),
+):
+    session = SessionLocal()
+    try:
+        # Base query: only include domains with >0 upvotes, etc.
+        query = (
+            session.query(Domain)
+            .filter(Domain.upvotes > 0)
+            .filter(Domain.downvotes < Domain.upvotes)
+            .filter(Domain.status == "free")
+        )
+
+        # Apply filtering if provided.
+        if filter:
+            query = query.filter(
+                (Domain.domain_name.ilike(f"%{filter}%"))
+                | (Domain.tld.ilike(f"%{filter}%"))
+            )
+
+        # Apply sorting based on the query parameters.
+        sort_order = sort_order.lower()
+        if sort_by == "alphabet":
+            if sort_order == "asc":
+                query = query.order_by(Domain.domain_name.asc(), Domain.tld.asc())
+            else:
+                query = query.order_by(Domain.domain_name.desc(), Domain.tld.desc())
+        elif sort_by == "length":
+            # Combine domain name and TLD (with a dot) and sort by its length.
+            domain_full = Domain.domain_name + "." + Domain.tld
+            if sort_order == "asc":
+                query = query.order_by(func.length(domain_full).asc())
+            else:
+                query = query.order_by(func.length(domain_full).desc())
+        elif sort_by == "upvotes":
+            if sort_order == "asc":
+                query = query.order_by(Domain.upvotes.asc())
+            else:
+                query = query.order_by(Domain.upvotes.desc())
+        else:
+            # Fallback to upvotes descending if an unknown sort_by is provided.
+            query = query.order_by(Domain.upvotes.desc())
+
+        # Calculate the total number of matching rows.
+        total = query.count()
+
+        # Apply pagination.
+        domains = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        response_domains = [
+            RatedDomainsResponse(
+                domain=f"{dom.domain_name}.{dom.tld}",
+                last_checked=dom.last_checked,
+                status=dom.status,
+            )
+            for dom in domains
+        ]
+
+        return {"domains": response_domains, "total": total}
+    except Exception as e:
+        print(f"Error in top_domains: {e}")
+        session.rollback()
+        raise HTTPException(status_code=500, detail="Error fetching top domains.")
     finally:
         session.close()
 

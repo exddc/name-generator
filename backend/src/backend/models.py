@@ -99,3 +99,14 @@ class SuggestRequest(BaseModel):
 class FeedbackRequest(BaseModel):
     domain: str
     feedback: bool  # True = upvote, False = downvote
+
+
+class RatedDomainsResponse(BaseModel):
+    domain: str
+    last_checked: datetime.datetime
+    status: str
+
+
+class PaginatedDomainsResponse(BaseModel):
+    domains: List[RatedDomainsResponse]
+    total: int
