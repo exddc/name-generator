@@ -9,7 +9,7 @@ from models import SuggestRequest
 
 GROK_API_KEY = os.environ.get("GROQ_API_KEY")
 NUMBER_OF_SUGGESTIONS = int(os.environ.get("NUMBER_OF_SUGGESTIONS", 25))
-LLM_MODEL = os.environ.get("MODEL", "llama-3.2-3b-preview")
+LLM_MODEL = os.environ.get("LLM_MODEL", "llama-3.2-3b-preview")
 PORT = int(os.environ.get("PORT", 8002))
 
 client = groq.Groq(api_key=GROK_API_KEY)
