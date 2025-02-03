@@ -4,11 +4,15 @@ import { twMerge } from "tailwind-merge"
 const NEXT_PUBLIC_FEEDBACK_ENDPOINT = process.env.NEXT_PUBLIC_FEEDBACK_ENDPOINT;
 const NEXT_PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL;
 
+export type DomainFeedback = {
+  [domain: string]: boolean | undefined;
+};
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function handleDomainFeedback(domain: string, feedback: boolean, setDomainFeedback: (callback: (prev: any) => any) => void) {
+export function handleDomainFeedback(domain: string, feedback: boolean, setDomainFeedback: React.Dispatch<React.SetStateAction<DomainFeedback>>) {
   fetch(`${NEXT_PUBLIC_API_URL}/${NEXT_PUBLIC_FEEDBACK_ENDPOINT}`, {
       method: 'POST',
       headers: {

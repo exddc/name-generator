@@ -7,7 +7,7 @@ import { FaqSection } from '@/components/ui/faq';
 import ClientTweetCard from '@/components/magicui/client-tweet-card';
 import { ThumbsUp, ThumbsDown } from 'lucide-react';
 import { ButtonColorful } from '@/components/ui/button-colorful';
-import { handleDomainFeedback } from '@/lib/utils';
+import { handleDomainFeedback, DomainFeedback } from '@/lib/utils';
 
 const NEXT_PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL;
 const NEXT_PUBLIC_SUGGEST_ENDPOINT = process.env.NEXT_PUBLIC_SUGGEST_ENDPOINT;
@@ -16,10 +16,6 @@ interface DomainData {
     domain: string;
     status: string;
 }
-
-type DomainFeedback = {
-    [domain: string]: boolean | undefined;
-};
 
 export default function Home() {
     const [userInput, setUserInput] = useState('');

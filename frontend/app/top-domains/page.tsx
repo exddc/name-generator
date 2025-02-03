@@ -17,7 +17,7 @@ import {
     flexRender,
     ColumnDef,
 } from '@tanstack/react-table';
-import { cn, handleDomainFeedback } from '@/lib/utils';
+import { cn, handleDomainFeedback, DomainFeedback } from '@/lib/utils';
 
 import {
     Table,
@@ -63,9 +63,7 @@ export default function TopDomains() {
     // State for remote data and loading
     const [data, setData] = useState<Domain[]>([]);
     const [loading, setLoading] = useState(true);
-    const [domainFeedback, setDomainFeedback] = useState<
-        Record<string, boolean>
-    >({});
+    const [domainFeedback, setDomainFeedback] = useState<DomainFeedback>({});
 
     // Pagination state (TanStack Table uses 0-indexed pages)
     const [pageIndex, setPageIndex] = useState(0);
@@ -74,12 +72,6 @@ export default function TopDomains() {
 
     // Global filter (search input)
     const [globalFilter, setGlobalFilter] = useState('');
-
-    // Sorting state: sort by and sort order.
-    // Options for sortBy: "upvotes" (default), "alphabet", "length"
-    // Options for sortOrder: "asc" or "desc"
-    const [sortBy, setSortBy] = useState('upvotes');
-    const [sortOrder, setSortOrder] = useState('desc');
 
     // Define your table columns.
     const columns = useMemo<ColumnDef<Domain>[]>(
@@ -195,7 +187,7 @@ export default function TopDomains() {
         getPaginationRowModel: getPaginationRowModel(),
     });
 
-    // Fetch data whenever pageIndex, pageSize, globalFilter, sortBy, or sortOrder changes.
+    // Fetch data whenever pageIndex, pageSize or globalFilter changes.
     useEffect(() => {
         setLoading(true);
         const params = new URLSearchParams();
@@ -203,10 +195,6 @@ export default function TopDomains() {
         params.append('per_page', pageSize.toString());
         if (globalFilter) {
             params.append('filter', globalFilter);
-        }
-        if (sortBy) {
-            params.append('sort_by', sortBy);
-            params.append('sort_order', sortOrder);
         }
         fetch(
             `${NEXT_PUBLIC_API_URL}/${NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT}?${params.toString()}`
@@ -221,7 +209,7 @@ export default function TopDomains() {
                 console.error('Error fetching domains:', err);
                 setLoading(false);
             });
-    }, [pageIndex, pageSize, globalFilter, sortBy, sortOrder]);
+    }, [pageIndex, pageSize, globalFilter]);
 
     const id = 'top-domains-select';
 
