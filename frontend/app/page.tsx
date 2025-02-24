@@ -5,7 +5,6 @@ import { FlipWords } from '@/components/ui/flip-words';
 import Typewriter from '@/components/fancy/typewriter';
 import { FaqSection } from '@/components/ui/faq';
 import ClientTweetCard from '@/components/magicui/client-tweet-card';
-import { ThumbsUp, ThumbsDown } from 'lucide-react';
 import { ButtonColorful } from '@/components/ui/button-colorful';
 import { handleDomainFeedback, DomainFeedback } from '@/lib/utils';
 
