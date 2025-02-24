@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from typing import List, Optional
+from sqlalchemy import func
 import uvicorn
 import json
 import datetime
@@ -430,6 +431,81 @@ def top_domains(
         return {"domains": response_domains, "total": total}
     except Exception as e:
         print(f"Error in top_domains: {e}")
+        session.rollback()
+        raise HTTPException(status_code=500, detail="Error fetching top domains.")
+    finally:
+        session.close()
+
+
+@app.get("/v2/top_domains", response_model=PaginatedDomainsResponse)
+def top_domains(
+    page: int = Query(1, ge=1, description="Page number (starting at 1)"),
+    per_page: int = Query(10, ge=1, le=100, description="Number of items per page"),
+    filter: Optional[str] = Query(None, description="Filter domains by name"),
+    sort_by: Optional[str] = Query(
+        "rating", description="Sort by option: rating, alphabet, length"
+    ),
+    sort_order: Optional[str] = Query("desc", description="Sort order: asc or desc"),
+):
+    session = SessionLocal()
+    try:
+        # Base query: only include domains with rating > 0 and status 'free'
+        query = (
+            session.query(Domain)
+            .filter(Domain.rating > 0)  # Only domains with a positive rating
+            .filter(Domain.status == "free")  # Keep the 'free' status filter
+        )
+
+        # Apply filtering if provided
+        if filter:
+            query = query.filter(
+                (Domain.domain_name.ilike(f"%{filter}%"))
+                | (Domain.tld.ilike(f"%{filter}%"))
+            )
+
+        # Apply sorting based on the query parameters
+        sort_order = sort_order.lower()
+        if sort_by == "alphabet":
+            if sort_order == "asc":
+                query = query.order_by(Domain.domain_name.asc(), Domain.tld.asc())
+            else:
+                query = query.order_by(Domain.domain_name.desc(), Domain.tld.desc())
+        elif sort_by == "length":
+            # Combine domain name and TLD (with a dot) and sort by its length
+            domain_full = Domain.domain_name + "." + Domain.tld
+            if sort_order == "asc":
+                query = query.order_by(func.length(domain_full).asc())
+            else:
+                query = query.order_by(func.length(domain_full).desc())
+        elif sort_by == "rating":
+            if sort_order == "asc":
+                query = query.order_by(Domain.rating.asc())
+            else:
+                query = query.order_by(Domain.rating.desc())
+        else:
+            # Fallback to rating descending if an unknown sort_by is provided
+            query = query.order_by(Domain.rating.desc())
+
+        # Calculate the total number of matching rows
+        total = query.count()
+
+        # Apply pagination
+        domains = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        # Prepare response with rating included
+        response_domains = [
+            RatedDomainsResponse(
+                domain=f"{dom.domain_name}.{dom.tld}",
+                last_checked=dom.last_checked,
+                status=dom.status,
+                rating=dom.rating,  # Include the rating in the response
+            )
+            for dom in domains
+        ]
+
+        return {"domains": response_domains, "total": total}
+    except Exception as e:
+        print(f"Error in /v2/top_domains: {e}")
         session.rollback()
         raise HTTPException(status_code=500, detail="Error fetching top domains.")
     finally:
