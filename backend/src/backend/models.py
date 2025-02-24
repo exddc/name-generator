@@ -1,5 +1,5 @@
 import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List
 
 from sqlalchemy import (
@@ -10,6 +10,8 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     Integer,
     Float,
+    ForeignKeyConstraint,
+    CheckConstraint,
 )
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -38,6 +40,8 @@ class Domain(Base):
     )
     upvotes = Column(Integer, default=0)
     downvotes = Column(Integer, default=0)
+    rating = Column(Float, default=None)
+    ratings = Column(Integer, default=0)
 
     __table_args__ = (
         PrimaryKeyConstraint("domain_name", "tld"),  # Composite primary key
@@ -78,6 +82,29 @@ class Metric(Base):
     )
 
 
+class Ratings(Base):
+    __tablename__ = "ratings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    domain_name = Column(String, nullable=False)
+    tld = Column(String, nullable=False)
+    rating = Column(Integer, nullable=False)
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow(),
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["domain_name", "tld"],
+            ["domains.domain_name", "domains.tld"],
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("rating >= 1 AND rating <= 10", name="rating_range"),
+    )
+
+
 # ==========================
 # Pydantic Schemas
 # ==========================
@@ -101,10 +128,16 @@ class FeedbackRequest(BaseModel):
     feedback: bool  # True = upvote, False = downvote
 
 
+class FeedbackNumericRequest(BaseModel):
+    domain: str
+    feedback: int = Field(ge=1, le=10)  # Restrict feedback to 1-10
+
+
 class RatedDomainsResponse(BaseModel):
     domain: str
     last_checked: datetime.datetime
     status: str
+    rating: float
 
 
 class PaginatedDomainsResponse(BaseModel):

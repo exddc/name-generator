@@ -16,7 +16,9 @@ from models import (
     SuggestRequest,
     Metric,
     Domain,
+    Ratings,
     FeedbackRequest,
+    FeedbackNumericRequest,
     RatedDomainsResponse,
     PaginatedDomainsResponse,
 )
@@ -295,6 +297,67 @@ def feedback(feedback_req: FeedbackRequest):
         session.rollback()
         print(f"Error in /v1/feedback: {e}")
         raise HTTPException(status_code=500, detail="Error processing feedback.") from e
+    finally:
+        session.close()
+
+
+@app.post("/v2/feedback")
+def feedback(feedback_req: FeedbackNumericRequest):
+    """
+    Receives a domain and a numeric feedback value (1-10).
+    - Stores the feedback in the ratings table with domain_name and tld.
+    - Updates the overall rating in the domains table incrementally.
+    """
+    session = SessionLocal()
+
+    print(f"Received feedback for {feedback_req.domain}: {feedback_req.feedback}")
+
+    try:
+        # Extract domain components
+        full_domain = feedback_req.domain
+        domain_name, tld = extract_domain_tld(full_domain)
+
+        # Find the domain record with row-level locking to prevent race conditions
+        domain_record = (
+            session.query(Domain)
+            .filter_by(domain_name=domain_name, tld=tld)
+            .with_for_update()
+            .first()
+        )
+        if not domain_record:
+            raise HTTPException(
+                status_code=404, detail=f"Domain '{full_domain}' not found in DB."
+            )
+
+        # Store the new rating in the Ratings table
+        new_rating = Ratings(
+            domain_name=domain_name, tld=tld, rating=feedback_req.feedback
+        )
+        session.add(new_rating)
+
+        # Update the Domain's overall rating incrementally
+        if domain_record.ratings == 0 or domain_record.rating is None:
+            # If this is the first rating, set it directly
+            domain_record.rating = float(feedback_req.feedback)
+        else:
+            # Calculate new average: (current_avg * count + new_rating) / (count + 1)
+            domain_record.rating = (
+                domain_record.rating * domain_record.ratings + feedback_req.feedback
+            ) / (domain_record.ratings + 1)
+        domain_record.ratings += 1
+
+        # Commit the transaction (releases the lock)
+        session.commit()
+
+        return {"domain": full_domain, "status": "Rating received."}
+
+    except HTTPException as he:
+        session.rollback()
+        raise he  # Re-raise HTTP exceptions (e.g., 404)
+    except Exception as e:
+        session.rollback()
+        print(f"Error in /v2/feedback: {e}")
+        raise HTTPException(status_code=500, detail="Error processing rating.")
     finally:
         session.close()
 
