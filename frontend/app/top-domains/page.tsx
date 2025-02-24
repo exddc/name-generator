@@ -113,7 +113,7 @@ export default function TopDomains() {
             },
             {
                 accessorKey: 'rating',
-                header: () => <div className="text-center">Rating</div>,
+                header: () => <div className="text-center">User Rating</div>,
                 enableSorting: true,
                 cell: ({ getValue }) => (
                     <div className="text-center">
