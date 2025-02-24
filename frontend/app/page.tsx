@@ -168,7 +168,8 @@ export default function Home() {
         unknownDomains.length > 0;
 
     function renderDomainRow(item: DomainData, index: number) {
-        const feedback = domainFeedback[item.domain];
+        const feedback = domainFeedback[item.domain]; // Number (1-10) or undefined
+
         return (
             <li
                 key={index}
@@ -198,48 +199,39 @@ export default function Home() {
                             ? 'Registered'
                             : 'Unknown'}
                     </p>
-                    <div>
-                        <button
-                            className={
-                                'pl-4 pr-2 border-l border-[#D9D9D9] bg-white' +
-                                (feedback === true
-                                    ? ' text-green-500'
-                                    : ' text-neutral-500 hover:text-blacks')
-                            }
-                            onClick={() => {
-                                handleDomainFeedback(
-                                    item.domain,
-                                    true,
-                                    setDomainFeedback
-                                );
-                            }}
-                        >
-                            <ThumbsUp size={14} strokeWidth={1.5} />
-                        </button>
-                        <button
-                            className={
-                                'border-[#D9D9D9] bg-white' +
-                                (feedback === false
-                                    ? ' text-red-500'
-                                    : ' text-neutral-500 hover:text-black')
-                            }
-                            onClick={() => {
-                                handleDomainFeedback(
-                                    item.domain,
-                                    false,
-                                    setDomainFeedback
-                                );
-                            }}
-                        >
-                            <ThumbsDown size={14} strokeWidth={1.5} />
-                        </button>
+                    <div className="flex items-end gap-1">
+                        {/* Label for 1 */}
+                        <span className="text-xs text-gray-600 leading-none">
+                            1
+                        </span>
+                        {/* Vertical rating bars */}
+                        <div className="flex gap-[2px] items-end">
+                            {Array.from({ length: 10 }, (_, i) => i + 1).map(
+                                (rating) => (
+                                    <div
+                                        key={rating}
+                                        className={
+                                            'w-1 cursor-pointer transition-all duration-200 ' +
+                                            (feedback === rating
+                                                ? 'h-4 bg-blue-500'
+                                                : 'h-2 bg-gray-400 hover:h-3 hover:bg-gray-500')
+                                        }
+                                        onClick={() => {
+                                            handleDomainFeedback(
+                                                item.domain,
+                                                rating,
+                                                setDomainFeedback
+                                            );
+                                        }}
+                                    />
+                                )
+                            )}
+                        </div>
+                        {/* Label for 10 */}
+                        <span className="text-xs text-gray-600 leading-none">
+                            10
+                        </span>
                     </div>
-                    {/* <button
-                        className="pl-4 pr-2 border-l border-[#D9D9D9] bg-white"
-                        disabled={isLoading}
-                    >
-                        Generate similar
-                    </button> */}
                 </div>
             </li>
         );

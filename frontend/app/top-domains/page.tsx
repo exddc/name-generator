@@ -2,8 +2,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-    ThumbsUp,
-    ThumbsDown,
     ChevronLeft,
     ChevronRight,
     ChevronUp,
@@ -45,13 +43,13 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 
 const NEXT_PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL;
-const NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT =
-    process.env.NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT;
+const NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT = 'v2/top_domains'; // Updated to v2
 
 type Domain = {
     domain: string;
     status: string;
     last_checked: string;
+    rating: number; // Added from RatedDomainsResponse
 };
 
 type ApiResponse = {
@@ -60,20 +58,15 @@ type ApiResponse = {
 };
 
 export default function TopDomains() {
-    // State for remote data and loading
     const [data, setData] = useState<Domain[]>([]);
     const [loading, setLoading] = useState(true);
     const [domainFeedback, setDomainFeedback] = useState<DomainFeedback>({});
 
-    // Pagination state (TanStack Table uses 0-indexed pages)
     const [pageIndex, setPageIndex] = useState(0);
     const [pageSize, setPageSize] = useState(10);
     const [totalCount, setTotalCount] = useState(0);
-
-    // Global filter (search input)
     const [globalFilter, setGlobalFilter] = useState('');
 
-    // Define your table columns.
     const columns = useMemo<ColumnDef<Domain>[]>(
         () => [
             {
@@ -119,44 +112,52 @@ export default function TopDomains() {
                 },
             },
             {
+                accessorKey: 'rating',
+                header: () => <div className="text-center">Rating</div>,
+                enableSorting: true,
+                cell: ({ getValue }) => (
+                    <div className="text-center">
+                        {getValue<number>().toFixed(1)}
+                    </div>
+                ),
+            },
+            {
                 id: 'feedback',
-                header: () => <div className="text-right">Feedback</div>,
+                header: () => <div className="text-right">Rate</div>,
                 cell: ({ row }) => {
                     const domain = row.original.domain;
+                    const feedback = domainFeedback[domain];
                     return (
-                        <div className="flex justify-end gap-2 mr-4">
-                            <button
-                                className={cn(
-                                    domainFeedback[domain] === true
-                                        ? 'text-green-500'
-                                        : 'text-neutral-500 hover:text-black'
-                                )}
-                                onClick={() =>
-                                    handleDomainFeedback(
-                                        domain,
-                                        true,
-                                        setDomainFeedback
-                                    )
-                                }
-                            >
-                                <ThumbsUp size={14} strokeWidth={1.5} />
-                            </button>
-                            <button
-                                className={cn(
-                                    domainFeedback[domain] === false
-                                        ? 'text-red-500'
-                                        : 'text-neutral-500 hover:text-black'
-                                )}
-                                onClick={() =>
-                                    handleDomainFeedback(
-                                        domain,
-                                        false,
-                                        setDomainFeedback
-                                    )
-                                }
-                            >
-                                <ThumbsDown size={14} strokeWidth={1.5} />
-                            </button>
+                        <div className="flex justify-end gap-1 mr-4 items-end">
+                            <span className="text-xs text-gray-600 leading-none">
+                                1
+                            </span>
+                            <div className="flex gap-[2px] items-end">
+                                {Array.from(
+                                    { length: 10 },
+                                    (_, i) => i + 1
+                                ).map((rating) => (
+                                    <div
+                                        key={rating}
+                                        className={
+                                            'w-1 rounded-t-sm cursor-pointer transition-all duration-200 ' +
+                                            (feedback === rating
+                                                ? 'h-4 bg-blue-500'
+                                                : 'h-2 bg-gray-400 hover:h-3 hover:bg-gray-500')
+                                        }
+                                        onClick={() => {
+                                            handleDomainFeedback(
+                                                domain,
+                                                rating,
+                                                setDomainFeedback
+                                            );
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                            <span className="text-xs text-gray-600 leading-none">
+                                10
+                            </span>
                         </div>
                     );
                 },
@@ -165,7 +166,6 @@ export default function TopDomains() {
         [domainFeedback]
     );
 
-    // Create the TanStack Table instance.
     const table = useReactTable({
         data,
         columns,
@@ -187,11 +187,10 @@ export default function TopDomains() {
         getPaginationRowModel: getPaginationRowModel(),
     });
 
-    // Fetch data whenever pageIndex, pageSize or globalFilter changes.
     useEffect(() => {
         setLoading(true);
         const params = new URLSearchParams();
-        params.append('page', (pageIndex + 1).toString());
+        params.append('page', (pageIndex + 1).toString()); // API uses 1-indexed pages
         params.append('per_page', pageSize.toString());
         if (globalFilter) {
             params.append('filter', globalFilter);
@@ -226,7 +225,7 @@ export default function TopDomains() {
                     value={globalFilter}
                     onChange={(e) => {
                         setGlobalFilter(e.target.value);
-                        setPageIndex(0); // Reset to first page on new search.
+                        setPageIndex(0);
                     }}
                     className="w-full max-w-md mx-auto"
                 />
@@ -384,7 +383,6 @@ export default function TopDomains() {
                         </TableBody>
                     </Table>
                     <div className="flex items-center justify-between gap-8 p-2">
-                        {/* Results per page */}
                         <div className="flex items-center gap-3">
                             <Label htmlFor={id} className="max-sm:sr-only">
                                 Rows per page
@@ -414,7 +412,6 @@ export default function TopDomains() {
                                 </SelectContent>
                             </Select>
                         </div>
-                        {/* Page number information */}
                         <div className="flex grow justify-end whitespace-nowrap text-sm text-muted-foreground">
                             <p
                                 className="whitespace-nowrap text-sm text-muted-foreground"
@@ -433,7 +430,6 @@ export default function TopDomains() {
                                 </span>
                             </p>
                         </div>
-                        {/* Pagination buttons */}
                         <div>
                             <Pagination>
                                 <PaginationContent>
