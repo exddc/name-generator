@@ -1,60 +1,97 @@
 version: '3.9'
 
 services:
+    postgres:
+        image: postgres:13
+        container_name: postgres
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER:-postgres}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+            POSTGRES_DB: ${POSTGRES_DB:-postgres}
+        ports:
+            - "${POSTGRES_PORT:-5432}:5432"
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        networks:
+            - domain_generator_network
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
     domain_checker:
         build:
             context: ./domain_checker
             dockerfile: Dockerfile
         container_name: domain_checker
+        environment:
+            DOMAIN_CHECKER_PORT: ${DOMAIN_CHECKER_PORT:-8001}
+            DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
         env_file:
             - .env
         networks:
             - domain_generator_network
-        profiles:
-            - dev_backend
-            - prod
 
     name_suggestor:
         build:
             context: ./name_suggestor
             dockerfile: Dockerfile
         container_name: name_suggestor
+        environment:
+            NAME_SUGGESTOR_PORT: ${NAME_SUGGESTOR_PORT:-8002}
+            GROQ_API_KEY: ${GROQ_API_KEY}
+            NUMBER_OF_SUGGESTIONS: ${NUMBER_OF_SUGGESTIONS:-25}
+            LLM_MODEL: ${LLM_MODEL:-gemma2-9b-it}
         env_file:
             - .env
         networks:
             - domain_generator_network
-        profiles:
-            - dev_backend
-            - prod
 
     backend:
         build:
             context: ./backend
             dockerfile: Dockerfile
         container_name: backend
+        environment:
+            BACKEND_PORT: ${BACKEND_PORT:-8000}
+            DB_HOST: ${DB_HOST:-postgres}
+            DB_USER: ${POSTGRES_USER:-postgres}
+            DB_PASSWORD: ${POSTGRES_PASSWORD:-password}
+            DB_NAME: ${POSTGRES_DB:-postgres}
+            DB_PORT: ${DB_PORT:-5432}
+            DOMAIN_CHECKER_URL: http://domain_checker:${DOMAIN_CHECKER_PORT:-8001}/
+            NAME_SUGGESTOR_URL: http://name_suggestor:${NAME_SUGGESTOR_PORT:-8002}/
         env_file:
             - .env
         networks:
             - domain_generator_network
-        profiles:
-            - dev_backend
-            - prod
+        depends_on:
+            postgres:
+                condition: service_healthy
 
     frontend:
         build:
             context: ./frontend
             dockerfile: Dockerfile
             args:
-                - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-                - NEXT_PUBLIC_SUGGEST_ENDPOINT=${NEXT_PUBLIC_SUGGEST_ENDPOINT}
+                - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+                - NEXT_PUBLIC_SUGGEST_ENDPOINT=${NEXT_PUBLIC_SUGGEST_ENDPOINT:-v1/suggest_stream}
+                - NEXT_PUBLIC_FEEDBACK_ENDPOINT=${NEXT_PUBLIC_FEEDBACK_ENDPOINT:-v1/feedback}
+                - NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT=${NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT:-v2/top_domains}
         container_name: frontend
+        environment:
+            NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+            NEXT_PUBLIC_SUGGEST_ENDPOINT: ${NEXT_PUBLIC_SUGGEST_ENDPOINT:-v1/suggest_stream}
+            NEXT_PUBLIC_FEEDBACK_ENDPOINT: ${NEXT_PUBLIC_FEEDBACK_ENDPOINT:-v1/feedback}
+            NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT: ${NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT:-v2/top_domains}
         env_file:
             - .env
         networks:
             - domain_generator_network
-        profiles:
-            - dev_frontend
-            - prod
+        depends_on:
+            - backend
+            - name_suggestor
 
 networks:
     domain_generator_network:

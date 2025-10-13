@@ -1,0 +1,31 @@
+version: '3.9'
+
+services:
+    domain_checker:
+        ports:
+            - "${DOMAIN_CHECKER_PORT:-8001}:${DOMAIN_CHECKER_PORT:-8001}"
+        volumes:
+            - ./domain_checker/src:/app/src
+        command: poetry run uvicorn src.domain_checker.main:app --host 0.0.0.0 --port ${DOMAIN_CHECKER_PORT:-8001} --reload
+
+    name_suggestor:
+        ports:
+            - "${NAME_SUGGESTOR_PORT:-8002}:${NAME_SUGGESTOR_PORT:-8002}"
+        volumes:
+            - ./name_suggestor/src:/app/src
+        command: poetry run uvicorn src.name_suggestor.main:app --host 0.0.0.0 --port ${NAME_SUGGESTOR_PORT:-8002} --reload
+
+    backend:
+        ports:
+            - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
+        volumes:
+            - ./backend/src:/app/src
+        command: poetry run uvicorn src.backend.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8000} --reload
+
+    frontend:
+        ports:
+            - "3000:3000"
+        volumes:
+            - ./frontend:/app
+            - /app/node_modules
+        command: npm run dev
