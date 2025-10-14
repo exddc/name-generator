@@ -20,31 +20,42 @@ services:
             timeout: 5s
             retries: 5
 
-    domain_checker:
-        build:
-            context: ./domain_checker
-            dockerfile: Dockerfile
-        container_name: domain_checker
-        environment:
-            DOMAIN_CHECKER_PORT: ${DOMAIN_CHECKER_PORT:-8001}
-            DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
-        env_file:
-            - .env
+    redis:
+        image: redis:7-alpine
+        container_name: redis
+        restart: unless-stopped
         networks:
             - domain_generator_network
 
-    name_suggestor:
+    worker:
         build:
-            context: ./name_suggestor
-            dockerfile: Dockerfile
-        container_name: name_suggestor
+            context: ./backend
+        container_name: worker
+        restart: unless-stopped
         environment:
-            NAME_SUGGESTOR_PORT: ${NAME_SUGGESTOR_PORT:-8002}
+            REDIS_URL: ${REDIS_URL:-redis://redis:6379}
             GROQ_API_KEY: ${GROQ_API_KEY}
-            NUMBER_OF_SUGGESTIONS: ${NUMBER_OF_SUGGESTIONS:-25}
-            LLM_MODEL: ${LLM_MODEL:-gemma2-9b-it}
-        env_file:
-            - .env
+            DB_HOST: ${DB_HOST:-postgres}
+            DB_USER: ${POSTGRES_USER:-postgres}
+            DB_PASSWORD: ${POSTGRES_PASSWORD:-password}
+            DB_NAME: ${POSTGRES_DB:-postgres}
+            DB_PORT: ${DB_PORT:-5432}
+        depends_on:
+            - redis
+            - postgres
+        networks:
+            - domain_generator_network
+        command: poetry run python -m src.backend.worker
+
+    rq-dashboard:
+        image: eoranged/rq-dashboard
+        container_name: rq-dashboard
+        ports:
+            - "9181:9181"
+        environment:
+            - RQ_DASHBOARD_REDIS_URL=redis://redis:6379
+        depends_on:
+            - redis
         networks:
             - domain_generator_network
 
@@ -60,8 +71,8 @@ services:
             DB_PASSWORD: ${POSTGRES_PASSWORD:-password}
             DB_NAME: ${POSTGRES_DB:-postgres}
             DB_PORT: ${DB_PORT:-5432}
-            DOMAIN_CHECKER_URL: http://domain_checker:${DOMAIN_CHECKER_PORT:-8001}/
-            NAME_SUGGESTOR_URL: http://name_suggestor:${NAME_SUGGESTOR_PORT:-8002}/
+            REDIS_URL: "redis://redis:6379"
+            GROQ_API_KEY: ${GROQ_API_KEY}
         env_file:
             - .env
         networks:
@@ -69,6 +80,8 @@ services:
         depends_on:
             postgres:
                 condition: service_healthy
+            redis:
+                condition: service_started
 
     frontend:
         build:
@@ -91,7 +104,6 @@ services:
             - domain_generator_network
         depends_on:
             - backend
-            - name_suggestor
 
 networks:
     domain_generator_network:

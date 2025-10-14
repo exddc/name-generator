@@ -1,19 +1,10 @@
 version: '3.9'
 
 services:
-    domain_checker:
-        ports:
-            - "${DOMAIN_CHECKER_PORT:-8001}:${DOMAIN_CHECKER_PORT:-8001}"
+    worker:
         volumes:
-            - ./domain_checker/src:/app/src
-        command: poetry run uvicorn src.domain_checker.main:app --host 0.0.0.0 --port ${DOMAIN_CHECKER_PORT:-8001} --reload
-
-    name_suggestor:
-        ports:
-            - "${NAME_SUGGESTOR_PORT:-8002}:${NAME_SUGGESTOR_PORT:-8002}"
-        volumes:
-            - ./name_suggestor/src:/app/src
-        command: poetry run uvicorn src.name_suggestor.main:app --host 0.0.0.0 --port ${NAME_SUGGESTOR_PORT:-8002} --reload
+            - ./backend/src:/app/src
+        command: poetry run watchmedo auto-restart --directory=./ --pattern=*.py --recursive -- python -m src.backend.worker
 
     backend:
         ports:
