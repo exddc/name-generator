@@ -1,60 +1,109 @@
 version: '3.9'
 
 services:
-    domain_checker:
-        build:
-            context: ./domain_checker
-            dockerfile: Dockerfile
-        container_name: domain_checker
-        env_file:
-            - .env
+    postgres:
+        image: postgres:13
+        container_name: postgres
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER:-postgres}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+            POSTGRES_DB: ${POSTGRES_DB:-postgres}
+        ports:
+            - "${POSTGRES_PORT:-5432}:5432"
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
         networks:
             - domain_generator_network
-        profiles:
-            - dev_backend
-            - prod
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
 
-    name_suggestor:
-        build:
-            context: ./name_suggestor
-            dockerfile: Dockerfile
-        container_name: name_suggestor
-        env_file:
-            - .env
+    redis:
+        image: redis:7-alpine
+        container_name: redis
+        restart: unless-stopped
         networks:
             - domain_generator_network
-        profiles:
-            - dev_backend
-            - prod
+
+    worker:
+        build:
+            context: ./backend
+        container_name: worker
+        restart: unless-stopped
+        environment:
+            REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+            GROQ_API_KEY: ${GROQ_API_KEY}
+            DB_HOST: ${DB_HOST:-postgres}
+            DB_USER: ${POSTGRES_USER:-postgres}
+            DB_PASSWORD: ${POSTGRES_PASSWORD:-password}
+            DB_NAME: ${POSTGRES_DB:-postgres}
+            DB_PORT: ${DB_PORT:-5432}
+        depends_on:
+            - redis
+            - postgres
+        networks:
+            - domain_generator_network
+        command: poetry run python -m src.backend.worker
+
+    rq-dashboard:
+        image: eoranged/rq-dashboard
+        container_name: rq-dashboard
+        ports:
+            - "9181:9181"
+        environment:
+            - RQ_DASHBOARD_REDIS_URL=redis://redis:6379
+        depends_on:
+            - redis
+        networks:
+            - domain_generator_network
 
     backend:
         build:
             context: ./backend
             dockerfile: Dockerfile
         container_name: backend
+        environment:
+            BACKEND_PORT: ${BACKEND_PORT:-8000}
+            DB_HOST: ${DB_HOST:-postgres}
+            DB_USER: ${POSTGRES_USER:-postgres}
+            DB_PASSWORD: ${POSTGRES_PASSWORD:-password}
+            DB_NAME: ${POSTGRES_DB:-postgres}
+            DB_PORT: ${DB_PORT:-5432}
+            REDIS_URL: "redis://redis:6379"
+            GROQ_API_KEY: ${GROQ_API_KEY}
         env_file:
             - .env
         networks:
             - domain_generator_network
-        profiles:
-            - dev_backend
-            - prod
+        depends_on:
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_started
 
     frontend:
         build:
             context: ./frontend
             dockerfile: Dockerfile
             args:
-                - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-                - NEXT_PUBLIC_SUGGEST_ENDPOINT=${NEXT_PUBLIC_SUGGEST_ENDPOINT}
+                - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+                - NEXT_PUBLIC_SUGGEST_ENDPOINT=${NEXT_PUBLIC_SUGGEST_ENDPOINT:-v1/suggest_stream}
+                - NEXT_PUBLIC_FEEDBACK_ENDPOINT=${NEXT_PUBLIC_FEEDBACK_ENDPOINT:-v1/feedback}
+                - NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT=${NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT:-v2/top_domains}
         container_name: frontend
+        environment:
+            NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+            NEXT_PUBLIC_SUGGEST_ENDPOINT: ${NEXT_PUBLIC_SUGGEST_ENDPOINT:-v1/suggest_stream}
+            NEXT_PUBLIC_FEEDBACK_ENDPOINT: ${NEXT_PUBLIC_FEEDBACK_ENDPOINT:-v1/feedback}
+            NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT: ${NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT:-v2/top_domains}
         env_file:
             - .env
         networks:
             - domain_generator_network
-        profiles:
-            - dev_frontend
-            - prod
+        depends_on:
+            - backend
 
 networks:
     domain_generator_network:

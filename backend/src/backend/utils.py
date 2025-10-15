@@ -5,22 +5,19 @@ import tldextract
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from models import Base, Domain
+from .models import Base, Domain
+from .domain_check import check_domain
 
-DB_HOST = environ.get("DB_HOST")
-DB_PORT = int(environ.get("DB_PORT"))
-DB_USER = environ.get("DB_USER")
-DB_PASSWORD = environ.get("DB_PASSWORD")
+DB_HOST = environ.get("DB_HOST", "http://postgres")
+DB_PORT = int(environ.get("DB_PORT", 5432))
+DB_USER = environ.get("DB_USER", "postgres")
+DB_PASSWORD = environ.get("DB_PASSWORD", "password")
 
-DB_NAME = environ.get("DB_NAME")
+DB_NAME = environ.get("DB_NAME", "postgres")
 
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-DOMAIN_CHECKER_URL = environ.get("DOMAIN_CHECKER_URL")
-NAME_SUGGESTOR_URL = environ.get("NAME_SUGGESTOR_URL")
-DOMAIN_CHECKER_ENDPOINT = environ.get("DOMAIN_CHECKER_ENDPOINT")
-NAME_SUGGESTOR_ENDPOINT = environ.get("NAME_SUGGESTOR_ENDPOINT")
 
-
+print(f"DATABASE_URL: {DATABASE_URL}")
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -48,21 +45,6 @@ def extract_domain_tld(full_domain: str):
     return domain_name, tld
 
 
-def query_domain_checker(domains: list[str]) -> list[dict]:
-    """
-    Calls the external domain-checker service with:
-      POST { "domains": [...] }
-    Expects a response of the form:
-      [ { "domain": "<domain>", "status": "<status>" }, ... ]
-    """
-    payload = {"domains": domains}
-    resp = requests.post(
-        DOMAIN_CHECKER_URL + DOMAIN_CHECKER_ENDPOINT, json=payload, timeout=20
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
 def get_or_update_domain(session, full_domain: str):
     """
     1. Extract domain_name, tld using tldextract.
@@ -87,11 +69,9 @@ def get_or_update_domain(session, full_domain: str):
         if time_diff.total_seconds() < 3600 * 12:
             return existing
 
-    microservice_result = query_domain_checker([full_domain])
-    if not microservice_result:
+    new_status = check_domain(full_domain)
+    if not new_status:
         raise ValueError("Domain-checker returned no results.")
-
-    new_status = microservice_result[0]["status"]
 
     if existing:
         existing.status = new_status
@@ -110,42 +90,11 @@ def get_or_update_domain(session, full_domain: str):
         return new_domain
 
 
-def query_name_suggestor(query: str) -> list[str]:
-    """
-    Calls the external name-suggestor service with:
-      POST { "query": "..." }
-    Expects a response of the form:
-        { "suggestions": [...] }
-    """
-    payload = {"query": query}
-    resp = requests.post(
-        NAME_SUGGESTOR_URL + NAME_SUGGESTOR_ENDPOINT, json=payload, timeout=60
-    )
-    resp.raise_for_status()
-    return resp.json().get("suggestions", [])
-
-
 def check_services_connections(session) -> str:
     """
     Check if the services are reachable.
     """
     services = []
-    try:
-        resp = requests.get(DOMAIN_CHECKER_URL + "health", timeout=5)
-        resp.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print(msg := f"Error connecting to domain-checker: {e}")
-        print(f"Used URL: {DOMAIN_CHECKER_URL + 'health'}")
-        services.append(msg)
-
-    try:
-        resp = requests.get(NAME_SUGGESTOR_URL + "health", timeout=5)
-        resp.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print(msg := f"Error connecting to name-suggestor: {e}")
-        print(f"Used URL: {NAME_SUGGESTOR_URL + 'health'}")
-        services.append(msg)
-
     try:
         session.query(Domain).first()
     except Exception as e:

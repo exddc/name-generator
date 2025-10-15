@@ -12,6 +12,7 @@ from sqlalchemy import (
     Float,
     ForeignKeyConstraint,
     CheckConstraint,
+    Index,
 )
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -45,6 +46,8 @@ class Domain(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("domain_name", "tld"),  # Composite primary key
+        Index("ix_domains_status_upvotes", "status", "upvotes"),
+        Index("ix_domains_rating", "rating"),
     )
 
 
