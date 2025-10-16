@@ -12,6 +12,6 @@ RUN poetry install --no-interaction --no-ansi --without dev
 
 COPY . /app
 
-EXPOSE ${BACKEND_PORT:-8000}
+EXPOSE ${API_PORT:-8000}
 
-CMD ["poetry", "run", "uvicorn", "src.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["poetry", "run", "uvicorn", "api.main:singleton", "--host", "0.0.0.0", "--port", "8000"]

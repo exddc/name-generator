@@ -1,14 +1,32 @@
-# Backend
+# API
 
-## Development
+## Getting Started
 
-To run the service in development mode, use the following command:
+### Requirements
+
+- **Python 3.12 or higher**
+- **Poetry**: Install Poetry with: `curl -sSL https://install.python-poetry.org | python3 -`
+- **Git**
+
+### Installation
+
+Clone the repository:
 
 ```bash
-docker build --tag backend .
-docker run -p 8000:8000 backend
+git clone https://github.com/timo-weiss/domain-generator.git
+cd domain-generator/apps/api
 ```
 
+Install dependencies:
+
 ```bash
-poetry run python -m src.backend.main
+poetry install
 ```
+
+Run the application:
+
+```bash
+poetry run uvicorn api.main:singleton --host 0.0.0.0 --port 8000
+```
+
+API documentation is available at http://localhost:8000/docs.

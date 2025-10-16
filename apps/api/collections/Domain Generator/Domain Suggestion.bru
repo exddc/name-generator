@@ -1,0 +1,20 @@
+meta {
+  name: Domain Suggestion
+  type: http
+  seq: 1
+}
+
+post {
+  url: http://localhost:8000/v1/domain
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {"description": "Home and Gardening in berlin, germany"}
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
