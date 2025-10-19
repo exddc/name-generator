@@ -105,10 +105,10 @@ const FaqItem = React.forwardRef<
             className={cn(
                 'group rounded-lg',
                 'transition-all duration-200 ease-in-out',
-                'border border-border/50',
+                'border border-border/50 bg-white backdrop-blur-lg bg-opacity-40',
                 isOpen
-                    ? 'bg-gradient-to-br from-background via-muted/50 to-background'
-                    : 'hover:bg-muted/50'
+                    ? 'bg-gradient-to-br from-white/40 via-white/50 to-white/80'
+                    : 'hover:bg-opacity-60'
             )}
         >
             <Button
@@ -119,8 +119,8 @@ const FaqItem = React.forwardRef<
                 <h3
                     className={cn(
                         'text-base font-medium transition-colors duration-200 text-left',
-                        'text-foreground/70',
-                        isOpen && 'text-foreground'
+                        'text-black/70',
+                        isOpen && 'text-black'
                     )}
                 >
                     {question}
@@ -160,7 +160,7 @@ const FaqItem = React.forwardRef<
                                 initial={{ y: -10, opacity: 0 }}
                                 animate={{ y: 0, opacity: 1 }}
                                 exit={{ y: -10, opacity: 0 }}
-                                className="text-sm text-muted-foreground leading-relaxed"
+                                className="text-sm text-black leading-relaxed"
                             >
                                 {answer}
                             </motion.p>

@@ -1,13 +1,25 @@
 'use client';
+
+// Libraries
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { cn } from '@/lib/utils';
+
+// Components
+import {
+    NavigationMenu,
+    NavigationMenuItem,
+    NavigationMenuLink,
+    NavigationMenuList,
+    navigationMenuTriggerStyle,
+} from '@/components/ui/navigation-menu';
 
 export default function Header() {
     const [showBorder, setShowBorder] = useState(false);
 
     useEffect(() => {
         function handleScroll() {
-            if (window.scrollY > 25) {
+            if (window.scrollY > 100) {
                 setShowBorder(true);
             } else {
                 setShowBorder(false);
@@ -24,40 +36,43 @@ export default function Header() {
     return (
         <header className="sticky top-0 z-50">
             <div
-                className={
-                    `px-6 py-3 backdrop-blur-sm  bg-opacity-60 transition-all duration-700 border-b` +
-                    (showBorder
+                className={cn(
+                    `mx-auto w-full py-5 backdrop-blur-sm bg-opacity-60 transition-all duration-700 border-b`,
+                    showBorder
                         ? ' border-neutral-200 bg-white'
-                        : ' border-transparent')
-                }
+                        : ' border-transparent'
+                )}
             >
-                <div className="flex flex-row justify-between">
+                <div className="max-w-7xl mx-auto w-full flex flex-row justify-between">
                     <Link
                         href="/"
-                        className="font-normal text-sm justify-center items-center flex"
+                        className="text-lg font-bold justify-center items-center flex"
                     >
                         Domain Generator
                     </Link>
-                    <div className="flex flex-row font-normal text-sm gap-12 tracking-tight items-center">
-                        <Link
-                            href="/top-domains"
-                            className="text-black hover:underline"
-                        >
-                            Top Rated Domains
-                        </Link>
-                        <Link
-                            href="/login"
-                            className="bg-black text-white px-3 py-[2px] rounded-[5px] border border-black flex items-center"
-                        >
-                            Login
-                        </Link>
-                        {/*                         <a
-                            href="/"
-                            className="bg-white text-black px-3 py-[2px] rounded-[5px] border border-black flex items-center"
-                        >
-                            Signup
-                        </a> */}
-                    </div>
+
+                    <NavigationMenu>
+                        <NavigationMenuList>
+                            <NavigationMenuItem>
+                                <NavigationMenuLink
+                                    asChild
+                                    className={navigationMenuTriggerStyle()}
+                                >
+                                    <Link href="/top-domains">
+                                        Top Rated Domains
+                                    </Link>
+                                </NavigationMenuLink>
+                            </NavigationMenuItem>
+                            <NavigationMenuItem>
+                                <NavigationMenuLink
+                                    asChild
+                                    className={navigationMenuTriggerStyle()}
+                                >
+                                    <Link href="/login">Login</Link>
+                                </NavigationMenuLink>
+                            </NavigationMenuItem>
+                        </NavigationMenuList>
+                    </NavigationMenu>
                 </div>
             </div>
         </header>

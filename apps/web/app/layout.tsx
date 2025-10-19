@@ -1,17 +1,14 @@
+// Libraries
 import type { Metadata } from 'next';
-import Script from 'next/script';
-import { Inter, Newsreader } from 'next/font/google';
+import { Inter } from 'next/font/google';
+
+// Components
 import './globals.css';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 
 const interSans = Inter({
     variable: '--font-inter-sans',
-    subsets: ['latin'],
-});
-
-const newsreaderSerif = Newsreader({
-    variable: '--font-newsreader-serif',
     subsets: ['latin'],
 });
 
@@ -28,18 +25,11 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en" className="w-full h-screen">
-            <body
-                className={`${interSans.variable} ${newsreaderSerif.variable} antialiased flex flex-col`}
-            >
+            <body className={`${interSans.variable} antialiased flex flex-col`}>
                 <Header />
                 {children}
                 <Footer />
             </body>
-            <Script
-                defer
-                data-domain="domain-generator.timoweiss.me"
-                src="https://plausible.io/js/script.js"
-            ></Script>
         </html>
     );
 }

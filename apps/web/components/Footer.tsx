@@ -1,44 +1,60 @@
-import CenterUnderline from './ui/Fancy-Underline-Center';
+// Components
 import Link from 'next/link';
 
 export default function Footer() {
     return (
-        <footer className="px-6 py-12 w-full border-t border-neutral-200 mt-24">
+        <footer className="px-6 py-12 w-full mt-64 z-10 max-w-7xl mx-auto">
             <div className="flex flex-row justify-between">
-                <div className="flex flex-col font-normal text-sm">
-                    <Link href="/" className="font-semibold">
+                <div className="flex flex-col font-normal text-sm gap-2">
+                    <Link href="/" className="font-semibold text-base">
                         Domain Generator
                     </Link>
-                    <span>
-                        Built by{' '}
-                        <Link
-                            href="https://x.com/timooweiss"
-                            target="_blank"
-                            className="font-serif italic"
-                        >
-                            <CenterUnderline label="@Timo Weiss" />
-                        </Link>
-                    </span>
-                    <span>© Don&apos;t copy my stuff</span>
+                    <Link href="/login" className="">
+                        Login
+                    </Link>
+                    <Link href="/top-domains" className="">
+                        Top Rated Domains
+                    </Link>
                 </div>
-                <div className="flex flex-col font-normal text-sm text-right">
-                    <span className="font-semibold">Links</span>
+                <div className="flex flex-col font-normal text-sm text-right gap-2">
+                    <span className="font-semibold text-base">
+                        Other Projects
+                    </span>
                     <Link
                         href="https://gotdoneapp.com"
                         target="_blank"
                         className=""
                     >
-                        <CenterUnderline label="Got Done App" />
+                        Got Done App
                     </Link>
                     <Link
-                        href="https://timoweiss.me"
+                        href="https://svelte-keyboard.timoweiss.me/"
                         target="_blank"
                         className=""
                     >
-                        <CenterUnderline label="timoweiss.me" />
+                        Svelte Mac Keyboard
+                    </Link>
+                    <Link
+                        href="https://box-grid.timoweiss.me/"
+                        target="_blank"
+                        className=""
+                    >
+                        Box Grid Generator
+                    </Link>
+                    <Link
+                        href="https://blurry-blob-background.timoweiss.me/"
+                        target="_blank"
+                        className=""
+                    >
+                        Animated Blurry Blob Background
                     </Link>
                 </div>
             </div>
+            <p className="text-sm text-center mt-12">
+                <Link href="https://x.com/timooweiss" target="_blank">
+                    Built by Timo Weiss
+                </Link>
+            </p>
         </footer>
     );
 }
