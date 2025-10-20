@@ -10,3 +10,7 @@ export interface DomainData {
     domain: string;
     status: string;
 }
+
+export type DomainFeedback = {
+    [domain: string]: number | undefined;
+  };

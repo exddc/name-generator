@@ -4,10 +4,6 @@ import { twMerge } from "tailwind-merge"
 const NEXT_PUBLIC_FEEDBACK_ENDPOINT = process.env.NEXT_PUBLIC_FEEDBACK_ENDPOINT;
 const NEXT_PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-export type DomainFeedback = {
-  [domain: string]: number | undefined;
-};
-
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }

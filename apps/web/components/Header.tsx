@@ -19,7 +19,7 @@ export default function Header() {
 
     useEffect(() => {
         function handleScroll() {
-            if (window.scrollY > 100) {
+            if (window.scrollY > 80) {
                 setShowBorder(true);
             } else {
                 setShowBorder(false);
