@@ -5,13 +5,13 @@ This service checks the availability of domain names.
 ## Installation
 
 1. Install dependencies with Poetry:
-    ```bash
-    poetry install
-    ```
-2. Run the service:
-   `bash
-poetry run python src/domain_checker/main.py
-    `
+   ```bash
+   poetry install
+   ```
+2. Start an RQ worker:
+   ```bash
+   poetry run domain-checker
+   ```
 
 ## Tests
 
@@ -21,11 +21,16 @@ Run the tests with Poetry:
 poetry run pytest
 ```
 
-## Development
+## Queue Usage
 
-To run the service in development mode, use the following command:
+Enqueue a job from a Python shell:
 
-```bash
-docker build --tag domain_checker .
-docker run -p 8001:8001 domain_checker
+```python
+from redis import Redis
+from rq import Queue
+
+redis_conn = Redis.from_url("redis://localhost:6379/0")
+queue = Queue("domain_checks", connection=redis_conn)
+job = queue.enqueue("domain_checker.main.handle_domain_check", [["example.com"]])
+print(job.result)
 ```

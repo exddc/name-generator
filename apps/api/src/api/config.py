@@ -12,6 +12,15 @@ class Settings(BaseSettings):
     api_debug: bool = False
     """Enable API debug mode"""
 
+    redis_url: str = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    """Redis connection URL for RQ usage"""
+
+    rq_queue_name: str = os.environ.get("RQ_QUEUE", "domain_checks")
+    """RQ queue name used for domain check jobs"""
+
+    rq_job_timeout_seconds: int = int(os.environ.get("RQ_JOB_TIMEOUT_SECONDS", "30"))
+    """How long the API waits for job results before returning UNKNOWN"""
+
     groq_api_key: str = os.environ.get("GROQ_API_KEY")
     """Groq API key"""
     groq_model: str = os.environ.get("GROQ_MODEL", "qwen/qwen3-32b")

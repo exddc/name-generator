@@ -5,8 +5,7 @@ from enum import Enum
 
 class DomainStatus(str, Enum):
     AVAILABLE = "available"
-    UNAVAILABLE = "unavailable"
-    RESERVED = "reserved"
+    REGISTERED = "registered"
     UNKNOWN = "unknown"
 
 class DomainSuggestion(BaseModel):

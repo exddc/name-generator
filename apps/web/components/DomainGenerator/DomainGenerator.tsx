@@ -2,7 +2,7 @@
 
 // Libraries
 import React, { useEffect, useState } from 'react';
-import { DomainData } from '@/lib/types';
+import { Domain, DomainStatus } from '@/lib/types';
 
 // Components
 import { DomainRow } from '@/components/DomainGenerator';
@@ -20,15 +20,13 @@ export default function DomainGenerator({
     onDomainsStatusChange,
 }: DomainGeneratorProps) {
     const [userInput, setUserInput] = useState('');
-    const [domains, setDomains] = useState<DomainData[]>([]);
+    const [domains, setDomains] = useState<Domain[]>([]);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [textAreaRows, setTextAreaRows] = useState(1);
-    const [freeDomains, setFreeDomains] = useState<DomainData[]>([]);
-    const [registeredDomains, setRegisteredDomains] = useState<DomainData[]>(
-        []
-    );
-    const [unknownDomains, setUnknownDomains] = useState<DomainData[]>([]);
+    const [freeDomains, setFreeDomains] = useState<Domain[]>([]);
+    const [registeredDomains, setRegisteredDomains] = useState<Domain[]>([]);
+    const [unknownDomains, setUnknownDomains] = useState<Domain[]>([]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -51,17 +49,18 @@ export default function DomainGenerator({
             const data = await response.json();
             setDomains(data.suggestions);
             setFreeDomains(
-                data.suggestions.filter((d: DomainData) => d.status === 'free')
+                data.suggestions.filter(
+                    (d: Domain) => d.status === DomainStatus.AVAILABLE
+                )
             );
             setRegisteredDomains(
                 data.suggestions.filter(
-                    (d: DomainData) => d.status === 'registered'
+                    (d: Domain) => d.status === DomainStatus.REGISTERED
                 )
             );
             setUnknownDomains(
                 data.suggestions.filter(
-                    (d: DomainData) =>
-                        d.status !== 'free' && d.status !== 'registered'
+                    (d: Domain) => d.status === DomainStatus.UNKNOWN
                 )
             );
         }
