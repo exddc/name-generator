@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     groq_model_top_p: float = os.environ.get("GROQ_MODEL_TOP_P", 0.95)
     """Groq model top p"""
 
+    max_suggestions_retries: int = int(os.environ.get("MAX_SUGGESTIONS_RETRIES", "5"))
+    """Maximum attempts to fetch enough available suggestions"""
+
 _settings: Settings | None = None
 
 def get_settings() -> Settings:

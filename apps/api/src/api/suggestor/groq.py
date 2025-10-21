@@ -62,6 +62,9 @@ class GroqSuggestor(SuggestorBase):
                 s = suggestion.strip().lower().replace(" ", "")
                 sanitized_suggestions.append(s)
 
+            # Remove duplicates
+            sanitized_suggestions = list(set(sanitized_suggestions))
+
             return sanitized_suggestions
         except Exception as e:
             print(f"Error while generating domain suggestions: {e}")

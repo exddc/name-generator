@@ -2,6 +2,7 @@
 
 // Libraries
 import React, { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { Domain, DomainStatus } from '@/lib/types';
 
 // Components
@@ -74,7 +75,7 @@ export default function DomainGenerator({
     return (
         <div
             id="domain-generator-form"
-            className="w-full max-w-2xl space-y-4 mt-6 bg-white p-5 rounded-2xl backdrop-blur-lg bg-opacity-40 border border-neutral-200 transition-all duration-300"
+            className="w-full max-w-2xl space-y-4 mt-6 bg-white p-5 rounded-2xl backdrop-blur-lg bg-opacity-40 border border-neutral-200 transition-all duration-500"
         >
             <div className="relative overflow-hidden rounded-xl focus-within:ring-1 focus-within:ring-neutral-300">
                 <form
@@ -117,6 +118,23 @@ export default function DomainGenerator({
                     </button>
                 </form>
             </div>
+
+            <AnimatePresence>
+                {domains.length === 0 && isLoading && (
+                    <motion.div
+                        key="domain-loading-indicator"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        className="w-full overflow-hidden"
+                    >
+                        <span className="flex items-center justify-center text-xs py-1 animate-pulse">
+                            Generating domains...
+                        </span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {domains.length > 0 && (
                 <div className="w-full flex items-center justify-center">

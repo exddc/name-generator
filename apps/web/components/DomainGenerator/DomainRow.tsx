@@ -1,5 +1,6 @@
 // Libraries
-import { Domain, DomainStatus } from '@/lib/types';
+import { Domain, DomainStatusColor } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 // Components
 import Link from 'next/link';
@@ -20,20 +21,12 @@ export default function DomainRow({ domain }: { domain: Domain }) {
                     Suggest similar
                 </span>
                 <span
-                    className={
-                        (domain.status === DomainStatus.AVAILABLE
-                            ? 'bg-green-500/30 border-green-700'
-                            : domain.status === DomainStatus.REGISTERED
-                            ? 'bg-red-500/30 border-red-700'
-                            : 'bg-yellow-500/30 border-yellow-700') +
-                        ' text-black font-semibold text-[0.65rem] border px-2 flex items-center h-[18px] rounded-xl'
-                    }
+                    className={cn(
+                        DomainStatusColor[domain.status],
+                        'text-neutral-800 font-semibold text-[0.6rem] border px-1.5 flex items-center h-[20px] rounded-xl'
+                    )}
                 >
-                    {domain.status === DomainStatus.AVAILABLE
-                        ? 'Available'
-                        : domain.status === DomainStatus.REGISTERED
-                        ? 'Registered'
-                        : 'Unknown'}
+                    {domain.status}
                 </span>
             </div>
         </div>

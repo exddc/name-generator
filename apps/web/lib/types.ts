@@ -11,12 +11,13 @@ export enum DomainStatus {
     UNKNOWN = 'unknown',
 }
 
-// TODO: Remove this once the API is updated
-export interface DomainData {
-    domain: string;
-    status: string;
+export enum DomainStatusColor {
+    'available' = 'bg-green-300 border-green-500/40 bg-opacity-40',
+    'registered' = 'bg-red-300 border-red-500/40 bg-opacity-40',
+    'unknown' = 'bg-yellow-300 border-yellow-500/40 bg-opacity-40',
 }
 
+// TODO: Remove this once the API is updated
 export type DomainFeedback = {
     [domain: string]: number | undefined;
   };

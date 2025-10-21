@@ -1,7 +1,5 @@
 """Domain routes handling suggestion and status checks via RQ worker."""
 
-from __future__ import annotations
-
 import asyncio
 import datetime
 import time
@@ -46,33 +44,70 @@ async def get_domain_status(domain: str) -> ResponseDomainStatus:
 @router.post("/")
 async def suggest(request: RequestDomainSuggestion) -> ResponseDomainSuggestion:
     """Generate suggestions and enrich them with worker-provided availability statuses."""
-    suggestions = await GroqSuggestor().generate(request.description, request.count)
-    plain_domains = list(suggestions)
+    requested_count = request.count or RequestDomainSuggestion.model_fields["count"].default
+    retries = 0
+    max_retries = max(1, settings.max_suggestions_retries)
 
-    results = await enqueue_and_wait(plain_domains)
-    status_lookup = {
-        item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
-        for item in results
-        if isinstance(item, dict)
-    }
+    accumulated: list[DomainSuggestion] = []
+    accumulated_lookup: dict[str, DomainSuggestion] = {}
+    available_count = 0
 
-    now = datetime.datetime.now(datetime.UTC)
-    response_items = []
-    for domain in plain_domains:
-        status_value = status_lookup.get(domain, "unknown")
-        status_enum = map_worker_status_to_domain_status(status_value)
+    while retries < max_retries:
+        suggestions = await GroqSuggestor().generate(request.description, requested_count)
+        plain_domains = list(suggestions)
 
-        response_items.append(
-            DomainSuggestion(
+        results = await enqueue_and_wait(plain_domains)
+        status_lookup = {
+            item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
+            for item in results
+            if isinstance(item, dict)
+        }
+
+        now = datetime.datetime.now(datetime.UTC)
+
+        for domain in plain_domains:
+            status_value = status_lookup.get(domain, "unknown")
+            status_enum = map_worker_status_to_domain_status(status_value)
+
+            suggestion = DomainSuggestion(
                 domain=domain,
                 tld=domain.split(".")[-1],
                 status=status_enum,
                 created_at=now,
                 updated_at=now,
             )
-        )
 
-    return ResponseDomainSuggestion(suggestions=response_items, total=len(response_items))
+            existing = accumulated_lookup.get(domain)
+            if existing:
+                if (
+                    existing.status is not DomainStatus.AVAILABLE
+                    and status_enum is DomainStatus.AVAILABLE
+                ):
+                    for idx, item in enumerate(accumulated):
+                        if item.domain == domain:
+                            accumulated[idx] = suggestion
+                            break
+                    accumulated_lookup[domain] = suggestion
+                    available_count += 1
+                continue
+
+            if status_enum is DomainStatus.AVAILABLE and available_count >= requested_count:
+                continue
+
+            accumulated.append(suggestion)
+            accumulated_lookup[domain] = suggestion
+            if status_enum is DomainStatus.AVAILABLE:
+                available_count += 1
+
+        if available_count >= requested_count:
+            break
+
+        retries += 1
+
+    return ResponseDomainSuggestion(
+        suggestions=accumulated,
+        total=len(accumulated),
+    )
 
 
 async def enqueue_and_wait(domains: List[str]) -> List[dict[str, str]]:
