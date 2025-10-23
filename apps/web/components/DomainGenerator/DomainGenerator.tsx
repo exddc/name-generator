@@ -1,16 +1,16 @@
 'use client';
 
 // Libraries
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Domain, DomainStatus } from '@/lib/types';
+import { Domain, DomainStatus, StreamMessage } from '@/lib/types';
 
 // Components
 import { DomainRow } from '@/components/DomainGenerator';
-import { LoadingAnimation, LoadingAnimation2 } from '../Icons';
+import { LoadingAnimation2 } from '../Icons';
 
 // Constants
-const DOMAIN_SUGGESTION_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain`;
+const DOMAIN_SUGGESTION_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/stream`;
 
 // Props
 type DomainGeneratorProps = {
@@ -29,44 +29,176 @@ export default function DomainGenerator({
     const [registeredDomains, setRegisteredDomains] = useState<Domain[]>([]);
     const [unknownDomains, setUnknownDomains] = useState<Domain[]>([]);
 
+    const abortControllerRef = useRef<AbortController | null>(null);
+
+    const applySuggestionMessage = (message: StreamMessage) => {
+        setDomains((prev) => {
+            const next = [...prev];
+
+            const upsert = (items?: Domain[]) => {
+                if (!items?.length) return;
+                for (const item of items) {
+                    const existingIndex = next.findIndex(
+                        (domain) => domain.domain === item.domain
+                    );
+
+                    if (existingIndex >= 0) {
+                        next[existingIndex] = item;
+                    } else {
+                        next.push(item);
+                    }
+                }
+            };
+
+            upsert(message.new);
+            upsert(message.updates);
+            upsert(message.suggestions);
+
+            return next;
+        });
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        abortControllerRef.current?.abort();
+
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         setIsLoading(true);
         setDomains([]);
         setErrorMsg(null);
 
-        const response = await fetch(DOMAIN_SUGGESTION_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ description: userInput }),
-        });
+        try {
+            const response = await fetch(DOMAIN_SUGGESTION_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ description: userInput }),
+                signal: controller.signal,
+            });
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            setErrorMsg(errorData.message || 'Failed to generate domains.');
-        } else {
-            const data = await response.json();
-            setDomains(data.suggestions);
-            setFreeDomains(
-                data.suggestions.filter(
-                    (d: Domain) => d.status === DomainStatus.AVAILABLE
-                )
-            );
-            setRegisteredDomains(
-                data.suggestions.filter(
-                    (d: Domain) => d.status === DomainStatus.REGISTERED
-                )
-            );
-            setUnknownDomains(
-                data.suggestions.filter(
-                    (d: Domain) => d.status === DomainStatus.UNKNOWN
-                )
-            );
+            if (!response.ok || !response.body) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(
+                    errorData.message || 'Failed to generate domains.'
+                );
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let isStreamComplete = false;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                const eventBlocks = buffer.split('\n\n');
+                buffer = eventBlocks.pop() ?? '';
+
+                for (const block of eventBlocks) {
+                    if (!block.trim()) {
+                        continue;
+                    }
+
+                    const lines = block.split('\n');
+                    let eventName = '';
+                    const dataLines: string[] = [];
+
+                    for (const rawLine of lines) {
+                        const line = rawLine.trimEnd();
+                        if (!line) continue;
+
+                        if (line.startsWith('event:')) {
+                            eventName = line.slice('event:'.length).trim();
+                        } else if (line.startsWith('data:')) {
+                            dataLines.push(
+                                line.slice('data:'.length).trimStart()
+                            );
+                        }
+                    }
+
+                    if (!eventName) {
+                        continue;
+                    }
+
+                    const dataRaw = dataLines.join('\n') || '{}';
+                    let payload: StreamMessage | undefined;
+
+                    try {
+                        payload = JSON.parse(dataRaw) as StreamMessage;
+                    } catch (jsonError) {
+                        console.warn(
+                            'Failed to parse stream payload',
+                            jsonError
+                        );
+                        payload = undefined;
+                    }
+
+                    switch (eventName) {
+                        case 'suggestions':
+                            if (payload) {
+                                applySuggestionMessage(payload);
+                            }
+                            break;
+                        case 'complete':
+                            if (payload) {
+                                applySuggestionMessage(payload);
+                            }
+                            isStreamComplete = true;
+                            break;
+                        case 'error':
+                            if (payload && 'message' in payload) {
+                                setErrorMsg(String((payload as any).message));
+                            } else {
+                                setErrorMsg('Failed to generate domains.');
+                            }
+                            isStreamComplete = true;
+                            break;
+                        default:
+                            // ignore other events (start, heartbeat, etc.)
+                            break;
+                    }
+
+                    if (isStreamComplete) {
+                        setIsLoading(false);
+                        break;
+                    }
+                }
+
+                if (isStreamComplete) {
+                    setIsLoading(false);
+                    break;
+                }
+            }
+        } catch (error) {
+            if (
+                !(error instanceof DOMException && error.name === 'AbortError')
+            ) {
+                console.error(error);
+                setErrorMsg(
+                    error instanceof Error
+                        ? error.message
+                        : 'Failed to generate domains.'
+                );
+            }
         }
-        setIsLoading(false);
     };
+
+    useEffect(() => {
+        setFreeDomains(
+            domains.filter((d) => d.status === DomainStatus.AVAILABLE)
+        );
+        setRegisteredDomains(
+            domains.filter((d) => d.status === DomainStatus.REGISTERED)
+        );
+        setUnknownDomains(
+            domains.filter((d) => d.status === DomainStatus.UNKNOWN)
+        );
+    }, [domains]);
 
     useEffect(() => {
         onDomainsStatusChange?.(domains.length > 0);
@@ -120,32 +252,41 @@ export default function DomainGenerator({
             </div>
 
             <AnimatePresence>
-                {domains.length === 0 && isLoading && (
+                {isLoading ? (
                     <motion.div
                         key="domain-loading-indicator"
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        exit={{ height: 'auto', opacity: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeInOut' }}
                         className="w-full overflow-hidden"
                     >
                         <span className="flex items-center justify-center text-xs py-1 animate-pulse">
                             Generating domains...
                         </span>
                     </motion.div>
-                )}
-            </AnimatePresence>
-
-            {domains.length > 0 && (
-                <div className="w-full flex items-center justify-center">
-                    <button
-                        onClick={() => {}} // TODO: get more domains
-                        className="text-xs hover:cursor-pointer bg-white border-gray-400 px-2 py-1 rounded-lg backdrop-blur-lg bg-opacity-60 hover:bg-opacity-100 hover:shadow-sm transition-all duration-300 hover:border-gray-600"
+                ) : !isLoading && domains.length > 0 ? (
+                    <motion.div
+                        key="generate-more-domains"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{
+                            delay: 0.2,
+                            duration: 0.2,
+                            ease: 'easeInOut',
+                        }}
+                        className="w-full flex items-center justify-center"
                     >
-                        Generate more Suggestions
-                    </button>
-                </div>
-            )}
+                        <button
+                            onClick={() => {}}
+                            className="text-xs hover:cursor-pointer bg-white border-gray-400 px-2 py-1 rounded-lg backdrop-blur-lg bg-opacity-60 hover:bg-opacity-100 hover:shadow-sm transition-all duration-300 hover:border-gray-600"
+                        >
+                            Generate more Suggestions
+                        </button>
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
 
             {errorMsg && (
                 <div className="mt-2 text-red-500">

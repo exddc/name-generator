@@ -1,8 +1,10 @@
 export interface Domain {
     domain: string;
+    tld: string;
     status: DomainStatus;
-    last_checked: string;
-    rating: number;
+    rating?: number;
+    created_at: string;
+    updated_at: string;
 }
 
 export enum DomainStatus {
@@ -17,7 +19,10 @@ export enum DomainStatusColor {
     'unknown' = 'bg-yellow-300 border-yellow-500/40 bg-opacity-40',
 }
 
-// TODO: Remove this once the API is updated
-export type DomainFeedback = {
-    [domain: string]: number | undefined;
-  };
+export type StreamMessage = {
+    new?: Domain[];
+    updates?: Domain[];
+    suggestions?: Domain[];
+    available_count?: number;
+    total?: number;
+};

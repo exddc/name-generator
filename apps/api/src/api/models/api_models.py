@@ -12,6 +12,7 @@ class DomainSuggestion(BaseModel):
     domain: str
     tld: str
     status: DomainStatus
+    rating: int | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
 

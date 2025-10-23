@@ -2,10 +2,12 @@
 
 import asyncio
 import datetime
+import json
 import time
 from typing import List
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from redis import Redis
 from rq import Queue
 from rq.job import Job
@@ -24,6 +26,10 @@ from api.suggestor.groq import GroqSuggestor
 settings = get_settings()
 redis_conn = Redis.from_url(settings.redis_url)
 queue = Queue(settings.rq_queue_name, connection=redis_conn)
+
+
+def _format_sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 router = APIRouter(prefix="/domain", tags=["domain"])
 
@@ -108,6 +114,127 @@ async def suggest(request: RequestDomainSuggestion) -> ResponseDomainSuggestion:
         suggestions=accumulated,
         total=len(accumulated),
     )
+
+
+@router.post("/stream")
+async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
+    """Stream domain suggestions as they are generated and checked."""
+    requested_count = request.count or RequestDomainSuggestion.model_fields["count"].default
+    max_retries = max(1, settings.max_suggestions_retries)
+
+    async def event_generator():
+        retries = 0
+        accumulated: list[DomainSuggestion] = []
+        accumulated_lookup: dict[str, DomainSuggestion] = {}
+        available_count = 0
+
+        yield _format_sse(
+            "start",
+            {
+                "requested_count": requested_count,
+                "max_retries": max_retries,
+            },
+        )
+
+        while retries < max_retries:
+            suggestions = await GroqSuggestor().generate(request.description, requested_count)
+            plain_domains = list(suggestions)
+
+            domains_to_check = [
+                domain
+                for domain in plain_domains
+                if domain not in accumulated_lookup
+                or accumulated_lookup[domain].status is not DomainStatus.AVAILABLE
+            ]
+
+            if not domains_to_check:
+                retries += 1
+                await asyncio.sleep(0)
+                continue
+
+            results = await enqueue_and_wait(domains_to_check)
+            status_lookup = {
+                item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
+                for item in results
+                if isinstance(item, dict)
+            }
+
+            now = datetime.datetime.now(datetime.UTC)
+
+            for domain in plain_domains:
+                if domain not in domains_to_check and domain not in accumulated_lookup:
+                    # Domain was skipped because it exceeded caps earlier
+                    continue
+
+                status_value = status_lookup.get(domain, "unknown")
+                status_enum = map_worker_status_to_domain_status(status_value)
+
+                suggestion = DomainSuggestion(
+                    domain=domain,
+                    tld=domain.split(".")[-1],
+                    status=status_enum,
+                    created_at=now,
+                    updated_at=now,
+                )
+
+                existing = accumulated_lookup.get(domain)
+                if existing:
+                    if (
+                        existing.status is not DomainStatus.AVAILABLE
+                        and status_enum is DomainStatus.AVAILABLE
+                    ):
+                        for idx, item in enumerate(accumulated):
+                            if item.domain == domain:
+                                accumulated[idx] = suggestion
+                                break
+                        accumulated_lookup[domain] = suggestion
+                        available_count += 1
+                        yield _format_sse(
+                            "suggestions",
+                            {
+                                "new": [],
+                                "updates": [suggestion.model_dump(mode="json")],
+                                "available_count": available_count,
+                                "total": len(accumulated),
+                            },
+                        )
+                        await asyncio.sleep(0)
+                    continue
+
+                if status_enum is DomainStatus.AVAILABLE and available_count >= requested_count:
+                    continue
+
+                accumulated.append(suggestion)
+                accumulated_lookup[domain] = suggestion
+                if status_enum is DomainStatus.AVAILABLE:
+                    available_count += 1
+                yield _format_sse(
+                    "suggestions",
+                    {
+                        "new": [suggestion.model_dump(mode="json")],
+                        "updates": [],
+                        "available_count": available_count,
+                        "total": len(accumulated),
+                    },
+                )
+                await asyncio.sleep(0)
+
+            if available_count >= requested_count:
+                break
+
+            retries += 1
+            await asyncio.sleep(0)
+
+        yield _format_sse(
+            "complete",
+            {
+                "suggestions": [item.model_dump(mode="json") for item in accumulated],
+                "available_count": available_count,
+                "total": len(accumulated),
+            },
+        )
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 async def enqueue_and_wait(domains: List[str]) -> List[dict[str, str]]:
