@@ -1,113 +1,72 @@
-version: '3.9'
-
 services:
-    postgres:
-        image: postgres:13
-        container_name: postgres
-        environment:
-            POSTGRES_USER: ${POSTGRES_USER:-postgres}
-            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
-            POSTGRES_DB: ${POSTGRES_DB:-postgres}
-        ports:
-            - "${POSTGRES_PORT:-5432}:5432"
-        volumes:
-            - postgres_data:/var/lib/postgresql/data
-        networks:
-            - domain_generator_network
-        healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
-            interval: 10s
-            timeout: 5s
-            retries: 5
+  redis:
+    image: bitnami/redis:latest
+    container_name: redis
+    profiles: [dev]
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/bitnami/redis/data
+    restart: unless-stopped
+    networks:
+      - domain-generator-network
 
-    redis:
-        image: redis:7-alpine
-        container_name: redis
-        restart: unless-stopped
-        networks:
-            - domain_generator_network
+  postgres:
+    container_name: postgres
+    image: postgres:18
+    profiles: [dev]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-domain_generator}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+    volumes:
+       - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - domain-generator-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-domain_generator}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-    worker:
-        build:
-            context: ./backend
-        container_name: worker
-        restart: unless-stopped
-        environment:
-            REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-            GROQ_API_KEY: ${GROQ_API_KEY}
-            DB_HOST: ${DB_HOST:-postgres}
-            DB_USER: ${POSTGRES_USER:-postgres}
-            DB_PASSWORD: ${POSTGRES_PASSWORD:-password}
-            DB_NAME: ${POSTGRES_DB:-postgres}
-            DB_PORT: ${DB_PORT:-5432}
-        depends_on:
-            - redis
-            - postgres
-        networks:
-            - domain_generator_network
-        command: poetry run python -m src.backend.worker
+  worker:
+    build:
+      context: ../apps/worker
+    container_name: domain-checker-worker
+    profiles: [worker]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      RQ_QUEUE: ${RQ_QUEUE:-domain_checks}
+      DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
+    depends_on:
+      - redis
+    networks:
+      - domain-generator-network
 
-    rq-dashboard:
-        image: eoranged/rq-dashboard
-        container_name: rq-dashboard
-        ports:
-            - "9181:9181"
-        environment:
-            - RQ_DASHBOARD_REDIS_URL=redis://redis:6379
-        depends_on:
-            - redis
-        networks:
-            - domain_generator_network
-
-    backend:
-        build:
-            context: ./backend
-            dockerfile: Dockerfile
-        container_name: backend
-        environment:
-            BACKEND_PORT: ${BACKEND_PORT:-8000}
-            DB_HOST: ${DB_HOST:-postgres}
-            DB_USER: ${POSTGRES_USER:-postgres}
-            DB_PASSWORD: ${POSTGRES_PASSWORD:-password}
-            DB_NAME: ${POSTGRES_DB:-postgres}
-            DB_PORT: ${DB_PORT:-5432}
-            REDIS_URL: "redis://redis:6379"
-            GROQ_API_KEY: ${GROQ_API_KEY}
-        env_file:
-            - .env
-        networks:
-            - domain_generator_network
-        depends_on:
-            postgres:
-                condition: service_healthy
-            redis:
-                condition: service_started
-
-    frontend:
-        build:
-            context: ./frontend
-            dockerfile: Dockerfile
-            args:
-                - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-                - NEXT_PUBLIC_SUGGEST_ENDPOINT=${NEXT_PUBLIC_SUGGEST_ENDPOINT:-v1/suggest_stream}
-                - NEXT_PUBLIC_FEEDBACK_ENDPOINT=${NEXT_PUBLIC_FEEDBACK_ENDPOINT:-v1/feedback}
-                - NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT=${NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT:-v2/top_domains}
-        container_name: frontend
-        environment:
-            NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-            NEXT_PUBLIC_SUGGEST_ENDPOINT: ${NEXT_PUBLIC_SUGGEST_ENDPOINT:-v1/suggest_stream}
-            NEXT_PUBLIC_FEEDBACK_ENDPOINT: ${NEXT_PUBLIC_FEEDBACK_ENDPOINT:-v1/feedback}
-            NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT: ${NEXT_PUBLIC_TOP_DOMAINS_ENDPOINT:-v2/top_domains}
-        env_file:
-            - .env
-        networks:
-            - domain_generator_network
-        depends_on:
-            - backend
+  api:
+    build:
+      context: ../apps/api
+    container_name: domain-generator-api
+    profiles: [api]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      RQ_QUEUE: ${RQ_QUEUE:-domain_checks}
+      DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
+    depends_on:
+      - redis
+    networks:
+      - domain-generator-network
 
 networks:
-    domain_generator_network:
-        driver: bridge
+  domain-generator-network:
+    driver: bridge
 
 volumes:
-    postgres_data:
+  redis-data:
+  postgres-data:
