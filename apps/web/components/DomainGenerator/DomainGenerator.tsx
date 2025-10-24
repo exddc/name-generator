@@ -25,6 +25,8 @@ export default function DomainGenerator({
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [textAreaRows, setTextAreaRows] = useState(1);
+
+    // Domain Filters
     const [freeDomains, setFreeDomains] = useState<Domain[]>([]);
     const [registeredDomains, setRegisteredDomains] = useState<Domain[]>([]);
     const [unknownDomains, setUnknownDomains] = useState<Domain[]>([]);

@@ -14,10 +14,17 @@ pydantic-settings = "^2.11.0"
 groq = "^0.32.0"
 redis = "^6.4.0"
 rq = "^2.6.0"
+tortoise-orm = {version = "^0.21.0", extras = ["asyncpg"]}
+aerich = "^0.7.2"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.0"
 
+
+[tool.aerich]
+tortoise_orm = "api.config.TORTOISE_ORM"
+location = "./migrations"
+src_folder = "./."
 [build-system]
 requires = ["poetry>=1.1"]
 build-backend = "poetry.core.masonry.api"

@@ -1,6 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from tortoise.contrib.fastapi import register_tortoise
 
 from api import __title__, __description__, __version__
 from api.routes import domain, health
@@ -27,6 +28,15 @@ def init_fastapi() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+
+    # Initialize TortoiseORM
+    settings = get_settings()
+    register_tortoise(
+        app,
+        config=settings.get_tortoise_config(),
+        generate_schemas=True,  # Auto-generate schemas on startup
+        add_exception_handlers=True,
     )
 
     # Routes

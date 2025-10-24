@@ -1,129 +1,71 @@
 import datetime as dt
+from typing import Optional
 
-from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    DateTime,
-    ForeignKey,
-    Enum as SAEnum,
-    Index,
-    CheckConstraint,
-    UniqueConstraint,
-    func,
-)
+from tortoise import fields
+from tortoise.models import Model
 
 from api.models.api_models import DomainStatus
 
-Base = declarative_base()
+class Suggestion(Model):
+    id = fields.IntField(pk=True)
+    description = fields.CharField(max_length=1024)
+    count = fields.IntField()
+    model = fields.CharField(max_length=128)
+    prompt = fields.CharField(max_length=4096)
+    
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+    
+    user_id = fields.IntField(null=True)
+    
+    # Reverse relations
+    domains: fields.ReverseRelation["Domain"]
+    ratings: fields.ReverseRelation["Rating"]
 
-def utcnow() -> dt.datetime:
-    return dt.datetime.now(dt.UTC)
-
-
-class Suggestion(Base):
-    __tablename__ = "suggestions"
-
-    id = Column(Integer, primary_key=True)
-    description = Column(String(1024), nullable=False)
-    count = Column(Integer, nullable=False)
-
-    created_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        default=utcnow,
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        default=utcnow,
-        onupdate=func.now(),
-    )
-
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-
-    domains = relationship(
-        "Domain",
-        back_populates="suggestion",
-        passive_deletes=True,
-    )
-    ratings = relationship(
-        "Rating",
-        back_populates="suggestion",
-        passive_deletes=True,
-    )
-
-    __table_args__ = (
-        Index("ix_suggestions_user_id", "user_id"),
-        Index("ix_suggestions_created_at", "created_at"),
-    )
+    class Meta:
+        table = "suggestions"
+        indexes = [
+            ("user_id",),
+            ("created_at",),
+        ]
 
 
-class Domain(Base):
-    __tablename__ = "domains"
-
+class Domain(Model):
     # Canonical identifier (e.g., "example.com")
-    domain = Column(String(255), primary_key=True)
-
+    domain = fields.CharField(max_length=255, pk=True)
+    
     # Normalized parts
-    domain_name = Column(String(200), nullable=False)  # "example"
-    tld = Column(String(63), nullable=False)           # "com"
-
-    status = Column(
-        SAEnum(DomainStatus, name="domain_status", native_enum=False),
-        nullable=False,
-        default=DomainStatus.UNKNOWN,
-        server_default=DomainStatus.UNKNOWN.value,
+    domain_name = fields.CharField(max_length=200)  # "example"
+    tld = fields.CharField(max_length=63)  # "com"
+    
+    status = fields.CharEnumField(DomainStatus, default=DomainStatus.UNKNOWN)
+    
+    last_checked = fields.DatetimeField(null=True)
+    
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+    
+    suggestion: fields.ForeignKeyNullableRelation[Suggestion] = fields.ForeignKeyField(
+        "models.Suggestion", related_name="domains", null=True, on_delete=fields.SET_NULL
     )
+    
+    upvotes = fields.IntField(default=0)
+    downvotes = fields.IntField(default=0)
+    
+    # Reverse relations
+    ratings: fields.ReverseRelation["Rating"]
 
-    last_checked = Column(DateTime(timezone=True), nullable=True)
-
-    created_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        default=utcnow,
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        default=utcnow,
-        onupdate=func.now(),
-    )
-
-    suggestion_id = Column(
-        Integer,
-        ForeignKey("suggestions.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
-    upvotes = Column(Integer, nullable=False, default=0, server_default="0")
-    downvotes = Column(Integer, nullable=False, default=0, server_default="0")
-
-    suggestion = relationship("Suggestion", back_populates="domains")
-    ratings = relationship(
-        "Rating",
-        back_populates="domain_rel",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
-
-    __table_args__ = (
-        UniqueConstraint("domain_name", "tld", name="uq_domain_parts"),
-        Index("ix_domains_status", "status"),
-        Index("ix_domains_status_last_checked", "status", "last_checked"),
-        Index("ix_domains_suggestion_id", "suggestion_id"),
-        CheckConstraint("length(domain_name) > 0", name="ck_domain_name_nonempty"),
-        CheckConstraint("length(tld) > 0", name="ck_tld_nonempty"),
-        CheckConstraint("tld = lower(tld)", name="ck_tld_lowercase"),
-    )
+    class Meta:
+        table = "domains"
+        unique_together = (("domain_name", "tld"),)
+        indexes = [
+            ("status",),
+            ("status", "last_checked"),
+            ("suggestion_id",),
+        ]
 
 
-class Rating(Base):
+class Rating(Model):
     """
     Binary thumbs voting with unified rater identity.
 
@@ -131,49 +73,36 @@ class Rating(Base):
     - rater_key: "user:<user_id>" or "anon:<opaque_id>" for anonymous users
     - Uniqueness enforced per (domain, rater_key)
     """
-    __tablename__ = "ratings"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-
-    domain = Column(
-        String(255),
-        ForeignKey("domains.domain", ondelete="CASCADE"),
-        nullable=False,
+    id = fields.IntField(pk=True)
+    
+    domain: fields.ForeignKeyRelation[Domain] = fields.ForeignKeyField(
+        "models.Domain", related_name="ratings", on_delete=fields.CASCADE
     )
-    suggestion_id = Column(
-        Integer,
-        ForeignKey("suggestions.id", ondelete="CASCADE"),
-        nullable=False,
+    suggestion: fields.ForeignKeyRelation[Suggestion] = fields.ForeignKeyField(
+        "models.Suggestion", related_name="ratings", on_delete=fields.CASCADE
     )
-
+    
     # Either +1 or -1, no default
-    vote = Column(Integer, nullable=False)
-
+    vote = fields.IntField()
+    
     # Unified identity for logged-in and anonymous raters
-    rater_key = Column(String(128), nullable=False)
-
+    rater_key = fields.CharField(max_length=128)
+    
     # Optional linkage if a real user exists
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id = fields.IntField(null=True)
+    
+    shown_index = fields.IntField(null=True)
+    model_version = fields.CharField(max_length=64, null=True)
+    search_id = fields.IntField(null=True)
+    
+    created_at = fields.DatetimeField(auto_now_add=True)
 
-    shown_index = Column(Integer, nullable=True)
-    model_version = Column(String(64), nullable=True)
-    search_id = Column(Integer, nullable=True)
-
-    created_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        default=utcnow,
-    )
-
-    domain_rel = relationship("Domain", back_populates="ratings")
-    suggestion = relationship("Suggestion", back_populates="ratings")
-
-    __table_args__ = (
-        CheckConstraint("vote IN (-1, 1)", name="ck_vote_binary"),
-        UniqueConstraint("domain", "rater_key", name="uq_vote_per_rater_per_domain"),
-        Index("ix_votes_domain", "domain"),
-        Index("ix_votes_suggestion", "suggestion_id"),
-        Index("ix_votes_rater_key", "rater_key"),
-        Index("ix_votes_user_id", "user_id"),
-    )
+    class Meta:
+        table = "ratings"
+        unique_together = (("domain", "rater_key"),)
+        indexes = [
+            ("domain",),
+            ("suggestion_id",),
+            ("rater_key",),
+            ("user_id",),
+        ]

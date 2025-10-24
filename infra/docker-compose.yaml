@@ -23,7 +23,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-domain_generator}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
     volumes:
-       - postgres-data:/var/lib/postgresql/data
+       - postgres-data:/var/lib/postgresql
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     networks:
@@ -54,12 +54,22 @@ services:
       context: ../apps/api
     container_name: domain-generator-api
     profiles: [api]
+    ports:
+      - "${API_PORT:-8000}:8000"
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       RQ_QUEUE: ${RQ_QUEUE:-domain_checks}
       DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-domain_generator}
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - domain-generator-network
 
