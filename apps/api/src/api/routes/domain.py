@@ -6,7 +6,7 @@ import json
 import time
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
 from redis import Redis
 from rq import Queue
@@ -21,6 +21,8 @@ from api.models.api_models import (
     ResponseDomainStatus,
 )
 from api.suggestor.groq import GroqSuggestor
+from api.suggestor.prompts import PromptType
+from api.utils import store_suggestion_batch, store_domain_status, MetricsTracker
 
 
 settings = get_settings()
@@ -31,11 +33,15 @@ queue = Queue(settings.rq_queue_name, connection=redis_conn)
 def _format_sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
+
 router = APIRouter(prefix="/domain", tags=["domain"])
 
 
 @router.get("/")
-async def get_domain_status(domain: str) -> ResponseDomainStatus:
+async def get_domain_status(
+    domain: str,
+    background_tasks: BackgroundTasks
+) -> ResponseDomainStatus:
     """Return the status of a single domain, waiting for worker results if available."""
     results = await enqueue_and_wait([domain])
     if not results:
@@ -44,25 +50,46 @@ async def get_domain_status(domain: str) -> ResponseDomainStatus:
     status_value = results[0].get("status", "unknown")
     mapped_status = map_worker_status_to_domain_status(status_value)
 
+    background_tasks.add_task(store_domain_status, domain, mapped_status)
+
     return ResponseDomainStatus(status=mapped_status)
 
 
 @router.post("/")
-async def suggest(request: RequestDomainSuggestion) -> ResponseDomainSuggestion:
+async def suggest(
+    request: RequestDomainSuggestion,
+    background_tasks: BackgroundTasks
+) -> ResponseDomainSuggestion:
     """Generate suggestions and enrich them with worker-provided availability statuses."""
     requested_count = request.count or RequestDomainSuggestion.model_fields["count"].default
     retries = 0
     max_retries = max(1, settings.max_suggestions_retries)
+    metrics = MetricsTracker()
 
     accumulated: list[DomainSuggestion] = []
     accumulated_lookup: dict[str, DomainSuggestion] = {}
     available_count = 0
+    domains_to_store: list[tuple[str, DomainStatus]] = []
 
     while retries < max_retries:
-        suggestions = await GroqSuggestor().generate(request.description, requested_count)
+        metrics.start_timer("llm")
+        metrics.increment_llm_call()
+        try:
+            suggestions = await GroqSuggestor().generate(request.description, requested_count)
+        except Exception as e:
+            metrics.add_error(f"LLM error: {str(e)}")
+            raise
+        finally:
+            metrics.stop_timer("llm")
+        
         plain_domains = list(suggestions)
+        metrics.add_domains_generated(plain_domains)
 
+        metrics.start_timer("worker")
+        metrics.increment_worker_job()
         results = await enqueue_and_wait(plain_domains)
+        metrics.stop_timer("worker")
+        
         status_lookup = {
             item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
             for item in results
@@ -82,6 +109,9 @@ async def suggest(request: RequestDomainSuggestion) -> ResponseDomainSuggestion:
                 created_at=now,
                 updated_at=now,
             )
+
+            domains_to_store.append((domain, status_enum))
+            metrics.add_domain_status(status_enum)
 
             existing = accumulated_lookup.get(domain)
             if existing:
@@ -109,6 +139,17 @@ async def suggest(request: RequestDomainSuggestion) -> ResponseDomainSuggestion:
             break
 
         retries += 1
+        metrics.increment_retry()
+    
+    background_tasks.add_task(
+        store_suggestion_batch,
+        request.description,
+        requested_count,
+        settings.groq_model,
+        PromptType.LEGACY.value,
+        domains_to_store,
+        metrics
+    )
 
     return ResponseDomainSuggestion(
         suggestions=accumulated,
@@ -122,11 +163,15 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
     requested_count = request.count or RequestDomainSuggestion.model_fields["count"].default
     max_retries = max(1, settings.max_suggestions_retries)
 
+    metrics = MetricsTracker()
+
     async def event_generator():
         retries = 0
         accumulated: list[DomainSuggestion] = []
         accumulated_lookup: dict[str, DomainSuggestion] = {}
         available_count = 0
+        domains_to_store: list[tuple[str, DomainStatus]] = []
+        first_suggestion_sent = False
 
         yield _format_sse(
             "start",
@@ -137,8 +182,18 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
         )
 
         while retries < max_retries:
-            suggestions = await GroqSuggestor().generate(request.description, requested_count)
+            metrics.start_timer("llm")
+            metrics.increment_llm_call()
+            try:
+                suggestions = await GroqSuggestor().generate(request.description, requested_count)
+            except Exception as e:
+                metrics.add_error(f"LLM error: {str(e)}")
+                raise
+            finally:
+                metrics.stop_timer("llm")
+            
             plain_domains = list(suggestions)
+            metrics.add_domains_generated(plain_domains)
 
             domains_to_check = [
                 domain
@@ -149,10 +204,15 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
 
             if not domains_to_check:
                 retries += 1
+                metrics.increment_retry()
                 await asyncio.sleep(0)
                 continue
 
+            metrics.start_timer("worker")
+            metrics.increment_worker_job()
             results = await enqueue_and_wait(domains_to_check)
+            metrics.stop_timer("worker")
+            
             status_lookup = {
                 item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
                 for item in results
@@ -177,6 +237,9 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
                     updated_at=now,
                 )
 
+                domains_to_store.append((domain, status_enum))
+                metrics.add_domain_status(status_enum)
+
                 existing = accumulated_lookup.get(domain)
                 if existing:
                     if (
@@ -189,6 +252,11 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
                                 break
                         accumulated_lookup[domain] = suggestion
                         available_count += 1
+                        
+                        if not first_suggestion_sent:
+                            metrics.mark_first_suggestion()
+                            first_suggestion_sent = True
+                        
                         yield _format_sse(
                             "suggestions",
                             {
@@ -208,6 +276,11 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
                 accumulated_lookup[domain] = suggestion
                 if status_enum is DomainStatus.AVAILABLE:
                     available_count += 1
+                
+                if not first_suggestion_sent:
+                    metrics.mark_first_suggestion()
+                    first_suggestion_sent = True
+                
                 yield _format_sse(
                     "suggestions",
                     {
@@ -223,7 +296,20 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
                 break
 
             retries += 1
+            metrics.increment_retry()
             await asyncio.sleep(0)
+
+        
+        asyncio.create_task(
+            store_suggestion_batch(
+                request.description,
+                requested_count,
+                settings.groq_model,
+                PromptType.LEGACY.value,
+                domains_to_store,
+                metrics
+            )
+        )
 
         yield _format_sse(
             "complete",

@@ -1,10 +1,68 @@
-import datetime as dt
-from typing import Optional
-
 from tortoise import fields
 from tortoise.models import Model
 
 from api.models.api_models import DomainStatus
+
+
+class SuggestionMetrics(Model):
+    """
+    Performance and timing metrics for each suggestion request.
+    Tracks LLM performance, worker times, retry counts, and success rates.
+    """
+    id = fields.IntField(pk=True)
+    
+    suggestion: fields.ForeignKeyRelation["Suggestion"] = fields.ForeignKeyField(
+        "models.Suggestion", related_name="metrics", on_delete=fields.CASCADE
+    )
+    
+    # Timing metrics
+    total_duration_ms = fields.IntField(null=True)
+    llm_total_duration_ms = fields.IntField(null=True)
+    worker_total_duration_ms = fields.IntField(null=True)
+    db_write_duration_ms = fields.IntField(null=True)
+    time_to_first_suggestion_ms = fields.IntField(null=True)
+    
+    # Per-attempt breakdowns
+    llm_attempt_durations_ms = fields.JSONField(null=True)
+    worker_attempt_durations_ms = fields.JSONField(null=True)
+    
+    # Retry and attempt metrics
+    retry_count = fields.IntField(default=0)
+    llm_call_count = fields.IntField(default=0)
+    worker_job_count = fields.IntField(default=0)
+    
+    # Domain metrics
+    total_domains_generated = fields.IntField(default=0)
+    unique_domains_generated = fields.IntField(default=0)
+    domains_returned = fields.IntField(default=0)
+    available_domains_count = fields.IntField(default=0)
+    registered_domains_count = fields.IntField(default=0)
+    unknown_domains_count = fields.IntField(default=0)
+    
+    # Success metrics
+    success_rate = fields.FloatField(null=True)
+    reached_target = fields.BooleanField(default=False)
+    
+    # Resource metrics
+    llm_tokens_total = fields.IntField(null=True)
+    llm_tokens_prompt = fields.IntField(null=True)
+    llm_tokens_completion = fields.IntField(null=True)
+    
+    # Error tracking
+    error_count = fields.IntField(default=0)
+    error_messages = fields.JSONField(null=True)
+    
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "suggestion_metrics"
+        indexes = [
+            ("suggestion_id",),
+            ("created_at",),
+            ("retry_count",),
+            ("success_rate",),
+        ]
+
 
 class Suggestion(Model):
     id = fields.IntField(pk=True)
@@ -21,6 +79,7 @@ class Suggestion(Model):
     # Reverse relations
     domains: fields.ReverseRelation["Domain"]
     ratings: fields.ReverseRelation["Rating"]
+    metrics: fields.ReverseRelation["SuggestionMetrics"]
 
     class Meta:
         table = "suggestions"
