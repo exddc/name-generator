@@ -8,6 +8,7 @@ import { Domain, DomainStatus, StreamMessage } from '@/lib/types';
 // Components
 import { DomainRow } from '@/components/DomainGenerator';
 import { LoadingAnimation2 } from '../Icons';
+import { CircleStop, SendHorizonal, Square } from 'lucide-react';
 
 // Constants
 const DOMAIN_SUGGESTION_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/stream`;
@@ -58,6 +59,10 @@ export default function DomainGenerator({
 
             return next;
         });
+    };
+
+    const handleCancel = () => {
+        abortControllerRef.current?.abort();
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -166,13 +171,11 @@ export default function DomainGenerator({
                     }
 
                     if (isStreamComplete) {
-                        setIsLoading(false);
                         break;
                     }
                 }
 
                 if (isStreamComplete) {
-                    setIsLoading(false);
                     break;
                 }
             }
@@ -187,6 +190,8 @@ export default function DomainGenerator({
                         : 'Failed to generate domains.'
                 );
             }
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -212,10 +217,7 @@ export default function DomainGenerator({
             className="w-full max-w-2xl space-y-4 mt-6 bg-white p-5 rounded-2xl backdrop-blur-lg bg-opacity-40 border border-neutral-200 transition-all duration-500"
         >
             <div className="relative overflow-hidden rounded-xl focus-within:ring-1 focus-within:ring-neutral-300">
-                <form
-                    onSubmit={handleSubmit}
-                    className="flex border border-[#D9D9D9] px-4 py-3 text-base justify-between rounded-xl bg-white"
-                >
+                <form className="flex border border-[#D9D9D9] px-4 py-3 text-base justify-between rounded-xl bg-white">
                     <textarea
                         placeholder="Describe your app, service, or company idea..."
                         value={userInput}
@@ -239,15 +241,22 @@ export default function DomainGenerator({
                         }}
                     />
                     <button
-                        type="submit"
+                        type="button"
+                        onClick={isLoading ? handleCancel : handleSubmit}
                         className="pl-4 pr-2 border-l border-[#D9D9D9] bg-transparent"
-                        disabled={isLoading}
                     >
                         <span
-                            className="flex items-center justify-center"
+                            className="flex items-center justify-center hover:cursor-pointer hover:scale-110 transition-all duration-300"
                             style={{ width: 24, height: 14 }}
                         >
-                            {isLoading ? <LoadingAnimation2 /> : 'Go'}
+                            {isLoading ? (
+                                <Square className="size-5" strokeWidth={1.5} />
+                            ) : (
+                                <SendHorizonal
+                                    className="size-5"
+                                    strokeWidth={1.5}
+                                />
+                            )}
                         </span>
                     </button>
                 </form>
