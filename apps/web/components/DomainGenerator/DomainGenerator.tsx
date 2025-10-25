@@ -65,17 +65,7 @@ export default function DomainGenerator({
         abortControllerRef.current?.abort();
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        abortControllerRef.current?.abort();
-
-        const controller = new AbortController();
-        abortControllerRef.current = controller;
-
-        setIsLoading(true);
-        setDomains([]);
-        setErrorMsg(null);
-
+    const fetchSuggestions = async (controller: AbortController) => {
         try {
             const response = await fetch(DOMAIN_SUGGESTION_URL, {
                 method: 'POST',
@@ -195,6 +185,28 @@ export default function DomainGenerator({
         }
     };
 
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        abortControllerRef.current?.abort();
+
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
+        setIsLoading(true);
+        setErrorMsg(null);
+        await fetchSuggestions(controller);
+    };
+
+    const handleGenerateMore = async () => {
+        abortControllerRef.current?.abort();
+
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        setIsLoading(true);
+        setErrorMsg(null);
+        await fetchSuggestions(controller);
+    };
+
     useEffect(() => {
         setFreeDomains(
             domains.filter((d) => d.status === DomainStatus.AVAILABLE)
@@ -290,7 +302,7 @@ export default function DomainGenerator({
                         className="w-full flex items-center justify-center"
                     >
                         <button
-                            onClick={() => {}}
+                            onClick={handleGenerateMore}
                             className="text-xs hover:cursor-pointer bg-white border-gray-400 px-2 py-1 rounded-lg backdrop-blur-lg bg-opacity-60 hover:bg-opacity-100 hover:shadow-sm transition-all duration-300 hover:border-gray-600"
                         >
                             Generate more Suggestions
