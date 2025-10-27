@@ -1,42 +1,71 @@
-export const exampleDomains = [
+import { Domain, DomainStatus } from "./types";
+
+export const exampleDomains: Domain[] = [
     {
         domain: 'woodcraftstudio.io',
-        status: 'free',
+        tld: 'io',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: DomainStatus.AVAILABLE,
     },
     {
         domain: 'bauhausmuenchen.com',
-        status: 'free',
+        tld: 'com',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: DomainStatus.AVAILABLE,
     },
     {
         domain: 'privateview.app',
-        status: 'free',
+        tld: 'app',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: DomainStatus.AVAILABLE,
     },
     {
         domain: 'beansofsatisfaction.com',
-        status: 'free',
+        tld: 'com',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: DomainStatus.AVAILABLE,
     },
     {
         domain: 'dailycup.io',
-        status: 'free',
+        tld: 'io',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: DomainStatus.AVAILABLE,
     },
 ];
 
-export const exampleRegisteredDomains = [
+export const exampleRegisteredDomains: Domain[] = [
     {
         domain: 'woodworks.de',
-        status: 'registered',
+        tld: 'de',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: DomainStatus.REGISTERED,
     },
     {
         domain: 'munichfurniture.com',
-        status: 'registered',
+        tld: 'com',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: DomainStatus.REGISTERED,
     },
     {
         domain: 'baumhaus.eu',
-        status: 'registered',
+        tld: 'eu',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: DomainStatus.REGISTERED,
     },
     {
         domain: 'dailycup.com',
-        status: 'registered',
+        tld: 'com',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: DomainStatus.REGISTERED,
     },
 ];
 

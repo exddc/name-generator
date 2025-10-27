@@ -34,7 +34,7 @@ export default function Home() {
                     </h3>
                     <p className="font-light text-balance text-lg">
                         Finding a great domain name is the first step in
-                        bringing your business, app, or project to the web.{' '}
+                        bringing your business, app, or project to the web.
                         <br />
                         Our AI takes your description and in seconds provides
                         available domain names that you can register or iterate
@@ -110,7 +110,7 @@ export default function Home() {
                 </div>
                 <div className="w-full flex flex-col gap-4 text-right">
                     <h3 className="text-3xl font-semibold tracking-tight flex flex-col">
-                        Describe what you're creating
+                        Describe what you&apos;re creating
                     </h3>
                     <p className="font-light text-balance text-lg">
                         Give a short description of your app, service, or

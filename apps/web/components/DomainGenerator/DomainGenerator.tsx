@@ -7,8 +7,7 @@ import { Domain, DomainStatus, StreamMessage } from '@/lib/types';
 
 // Components
 import { DomainRow } from '@/components/DomainGenerator';
-import { LoadingAnimation2 } from '../Icons';
-import { CircleStop, SendHorizonal, Square } from 'lucide-react';
+import { SendHorizonal, Square } from 'lucide-react';
 
 // Constants
 const DOMAIN_SUGGESTION_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/stream`;
@@ -149,7 +148,7 @@ export default function DomainGenerator({
                             break;
                         case 'error':
                             if (payload && 'message' in payload) {
-                                setErrorMsg(String((payload as any).message));
+                                setErrorMsg(String((payload as any).message)); // eslint-disable-line @typescript-eslint/no-explicit-any
                             } else {
                                 setErrorMsg('Failed to generate domains.');
                             }
