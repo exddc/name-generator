@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "worker"
+version = "0.1.0"
+description = "A worker to check domain availability."
+authors = ["Timo Weiss <timo.weiss@protonmail.ch>"]
+packages = [
+    { include = "domain_checker", from = "src" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+requests = "^2.32.3"
+pydantic = "^2.10.4"
+rq = "^2.6.0"
+redis = "^6.4.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.0"
+
+[tool.poetry.scripts]
+domain-checker = "domain_checker.main:main"
+
+[build-system]
+requires = ["poetry>=1.1"]
+build-backend = "poetry.core.masonry.api"

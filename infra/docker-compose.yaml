@@ -1,0 +1,82 @@
+services:
+  redis:
+    image: bitnami/redis:latest
+    container_name: redis
+    profiles: [dev]
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/bitnami/redis/data
+    restart: unless-stopped
+    networks:
+      - domain-generator-network
+
+  postgres:
+    container_name: postgres
+    image: postgres:18
+    profiles: [dev]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-domain_generator}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+    volumes:
+       - postgres-data:/var/lib/postgresql
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - domain-generator-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-domain_generator}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: ../apps/worker
+    container_name: domain-checker-worker
+    profiles: [worker]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      RQ_QUEUE: ${RQ_QUEUE:-domain_checks}
+      DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
+    depends_on:
+      - redis
+    networks:
+      - domain-generator-network
+
+  api:
+    build:
+      context: ../apps/api
+    container_name: domain-generator-api
+    profiles: [api]
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      RQ_QUEUE: ${RQ_QUEUE:-domain_checks}
+      DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-domain_generator}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - domain-generator-network
+
+networks:
+  domain-generator-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  postgres-data:

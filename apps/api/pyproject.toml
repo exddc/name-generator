@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "api"
+version = "0.1.0"
+description = "API service for the domain generator."
+authors = ["Timo Weiss <timo.weiss@protonmail.ch>"]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.116"
+uvicorn = "^0.36"
+requests = "^2.32.3"
+pydantic = "^2.10"
+pydantic-settings = "^2.11.0"
+groq = "^0.32.0"
+redis = "^6.4.0"
+rq = "^2.6.0"
+tortoise-orm = {version = "^0.21.0", extras = ["asyncpg"]}
+aerich = "^0.7.2"
+tldextract = "^5.3.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.0"
+
+
+[tool.aerich]
+tortoise_orm = "api.config.TORTOISE_ORM"
+location = "./migrations"
+src_folder = "./."
+[build-system]
+requires = ["poetry>=1.1"]
+build-backend = "poetry.core.masonry.api"
