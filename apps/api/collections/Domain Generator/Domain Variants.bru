@@ -1,0 +1,24 @@
+meta {
+  name: Domain Variants
+  type: http
+  seq: 6
+}
+
+get {
+  url: http://localhost:8000/v1/domain/variants?domain_name=modellbau
+  body: none
+  auth: inherit
+}
+
+params:query {
+  domain_name: modellbau
+}
+
+body:json {
+  {"domain": "test.com"}
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

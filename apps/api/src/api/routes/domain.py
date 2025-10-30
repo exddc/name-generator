@@ -6,7 +6,7 @@ import json
 import time
 from typing import List
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from redis import Redis
 from rq import Queue
@@ -22,6 +22,7 @@ from api.models.api_models import (
 )
 from api.suggestor.groq import GroqSuggestor
 from api.suggestor.prompts import PromptType
+from api.suggestor.tlds import POPULAR_TLDS
 from api.utils import store_suggestion_batch, store_domain_status, MetricsTracker
 
 
@@ -53,6 +54,194 @@ async def get_domain_status(
     background_tasks.add_task(store_domain_status, domain, mapped_status)
 
     return ResponseDomainStatus(status=mapped_status)
+
+
+@router.get("/variants")
+async def get_domain_variants(
+    domain_name: str,
+    background_tasks: BackgroundTasks,
+    limit: int = Query(10, ge=1, le=100, description="Number of available TLD variants to find."),
+) -> ResponseDomainSuggestion:
+    """
+    Check a domain against a list of TLDs, iterating until enough available domains are found.
+    """
+    metrics = MetricsTracker()
+    metrics.start_timer("total")
+
+    accumulated: list[DomainSuggestion] = []
+    accumulated_lookup: dict[str, DomainSuggestion] = {}
+    available_count = 0
+    domains_to_store: list[tuple[str, DomainStatus]] = []
+    
+    tld_batch_size = 20
+    tld_offset = 0
+
+    while available_count < limit and tld_offset < len(POPULAR_TLDS):
+        tld_batch = POPULAR_TLDS[tld_offset : tld_offset + tld_batch_size]
+        if not tld_batch:
+            break
+        
+        plain_domains_to_check = [f"{domain_name}.{tld}" for tld in tld_batch]
+        metrics.add_domains_generated(plain_domains_to_check)
+
+        metrics.start_timer("worker")
+        metrics.increment_worker_job()
+        results = await enqueue_and_wait(plain_domains_to_check)
+        metrics.stop_timer("worker")
+
+        status_lookup = {
+            item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
+            for item in results
+            if isinstance(item, dict)
+        }
+        
+        now = datetime.datetime.now(datetime.UTC)
+
+        for domain in plain_domains_to_check:
+            if domain in accumulated_lookup:
+                continue
+
+            status_value = status_lookup.get(domain, "unknown")
+            status_enum = map_worker_status_to_domain_status(status_value)
+
+            suggestion = DomainSuggestion(
+                domain=domain,
+                tld=domain.split(".")[-1],
+                status=status_enum,
+                created_at=now,
+                updated_at=now,
+            )
+            
+            accumulated.append(suggestion)
+            accumulated_lookup[domain] = suggestion
+            domains_to_store.append((domain, status_enum))
+            metrics.add_domain_status(status_enum)
+
+            if status_enum is DomainStatus.AVAILABLE:
+                available_count += 1
+        
+        tld_offset += tld_batch_size
+
+    metrics.stop_timer("total")
+    background_tasks.add_task(
+        store_suggestion_batch,
+        f"Variants for {domain_name}",
+        limit,
+        "variants-check",
+        "variants-check",
+        domains_to_store,
+        metrics,
+    )
+
+    return ResponseDomainSuggestion(
+        suggestions=accumulated,
+        total=len(accumulated),
+    )
+
+
+@router.get("/variants/stream")
+async def get_domain_variants_stream(
+    domain_name: str,
+    limit: int = Query(10, ge=1, le=100, description="Number of available TLD variants to find."),
+) -> StreamingResponse:
+    """Stream domain variant checks as they are processed."""
+    metrics = MetricsTracker()
+
+    async def event_generator():
+        accumulated: list[DomainSuggestion] = []
+        accumulated_lookup: dict[str, DomainSuggestion] = {}
+        available_count = 0
+        domains_to_store: list[tuple[str, DomainStatus]] = []
+
+        yield _format_sse(
+            "start",
+            {"requested_count": limit, "max_retries": 0},
+        )
+
+        tld_batch_size = 20
+        tld_offset = 0
+
+        while available_count < limit and tld_offset < len(POPULAR_TLDS):
+            tld_batch = POPULAR_TLDS[tld_offset : tld_offset + tld_batch_size]
+            if not tld_batch:
+                break
+
+            plain_domains_to_check = [f"{domain_name}.{tld}" for tld in tld_batch]
+            metrics.add_domains_generated(plain_domains_to_check)
+
+            metrics.start_timer("worker")
+            metrics.increment_worker_job()
+            results = await enqueue_and_wait(plain_domains_to_check)
+            metrics.stop_timer("worker")
+
+            status_lookup = {
+                item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
+                for item in results
+                if isinstance(item, dict)
+            }
+
+            now = datetime.datetime.now(datetime.UTC)
+            new_suggestions_in_batch = []
+
+            for domain in plain_domains_to_check:
+                if domain in accumulated_lookup:
+                    continue
+
+                status_value = status_lookup.get(domain, "unknown")
+                status_enum = map_worker_status_to_domain_status(status_value)
+
+                suggestion = DomainSuggestion(
+                    domain=domain,
+                    tld=domain.split(".")[-1],
+                    status=status_enum,
+                    created_at=now,
+                    updated_at=now,
+                )
+
+                accumulated.append(suggestion)
+                accumulated_lookup[domain] = suggestion
+                domains_to_store.append((domain, status_enum))
+                metrics.add_domain_status(status_enum)
+                new_suggestions_in_batch.append(suggestion)
+
+                if status_enum is DomainStatus.AVAILABLE:
+                    available_count += 1
+
+            if new_suggestions_in_batch:
+                yield _format_sse(
+                    "suggestions",
+                    {
+                        "new": [s.model_dump(mode="json") for s in new_suggestions_in_batch],
+                        "updates": [],
+                        "available_count": available_count,
+                        "total": len(accumulated),
+                    },
+                )
+                await asyncio.sleep(0)
+
+            tld_offset += tld_batch_size
+
+        asyncio.create_task(
+            store_suggestion_batch(
+                f"Variants for {domain_name}",
+                limit,
+                "variants-check",
+                "variants-check",
+                domains_to_store,
+                metrics,
+            )
+        )
+
+        yield _format_sse(
+            "complete",
+            {
+                "suggestions": [item.model_dump(mode="json") for item in accumulated],
+                "available_count": available_count,
+                "total": len(accumulated),
+            },
+        )
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.post("/")

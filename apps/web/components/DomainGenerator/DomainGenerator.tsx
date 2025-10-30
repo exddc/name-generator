@@ -8,6 +8,7 @@ import { Domain, DomainStatus, StreamMessage } from '@/lib/types';
 // Components
 import { DomainRow } from '@/components/DomainGenerator';
 import { SendHorizonal, Square } from 'lucide-react';
+import { Button } from '../ui/button';
 
 // Constants
 const DOMAIN_SUGGESTION_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/stream`;
@@ -300,12 +301,9 @@ export default function DomainGenerator({
                         }}
                         className="w-full flex items-center justify-center"
                     >
-                        <button
-                            onClick={handleGenerateMore}
-                            className="text-xs hover:cursor-pointer bg-white border-gray-400 px-2 py-1 rounded-lg backdrop-blur-lg bg-opacity-60 hover:bg-opacity-100 hover:shadow-sm transition-all duration-300 hover:border-gray-600"
-                        >
+                        <Button onClick={handleGenerateMore} size="sm">
                             Generate more Suggestions
-                        </button>
+                        </Button>
                     </motion.div>
                 ) : null}
             </AnimatePresence>

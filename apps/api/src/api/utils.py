@@ -275,7 +275,7 @@ async def store_suggestion_batch(
     description: str,
     count: int,
     model: str,
-    prompt_type: str,
+    prompt: str,
     domains_data: list[tuple[str, DomainStatus]],
     metrics_tracker: Optional[MetricsTracker] = None
 ) -> None:
@@ -286,7 +286,7 @@ async def store_suggestion_batch(
         description: User's search query
         count: Number of domains requested
         model: LLM model name used
-        prompt_type: Prompt template identifier (e.g., "LEGACY")
+        prompt: Prompt template identifier (e.g., "LEGACY")
         domains_data: List of (domain, status) tuples to store
         metrics_tracker: Optional metrics tracker to save performance data
     """
@@ -296,7 +296,7 @@ async def store_suggestion_batch(
             description=description,
             count=count,
             model=model,
-            prompt=prompt_type,
+            prompt=prompt,
             user_id=None,
         )
         
