@@ -277,7 +277,8 @@ async def store_suggestion_batch(
     model: str,
     prompt: str,
     domains_data: list[tuple[str, DomainStatus]],
-    metrics_tracker: Optional[MetricsTracker] = None
+    metrics_tracker: Optional[MetricsTracker] = None,
+    user_id: str | None = None
 ) -> None:
     """
     Background task to store suggestion and domains in database.
@@ -289,6 +290,7 @@ async def store_suggestion_batch(
         prompt: Prompt template identifier (e.g., "LEGACY")
         domains_data: List of (domain, status) tuples to store
         metrics_tracker: Optional metrics tracker to save performance data
+        user_id: Optional user ID if the user is logged in
     """
     db_start = time.time()
     try:
@@ -297,7 +299,7 @@ async def store_suggestion_batch(
             count=count,
             model=model,
             prompt=prompt,
-            user_id=None,
+            user_id=user_id,
         )
         
         for domain, status in domains_data:

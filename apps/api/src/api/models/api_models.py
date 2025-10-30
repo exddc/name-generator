@@ -19,6 +19,7 @@ class DomainSuggestion(BaseModel):
 class RequestDomainSuggestion(BaseModel):
     description: str
     count: int = Field(default=10, ge=1, le=100)
+    user_id: str | None = None
 
 class ResponseDomainSuggestion(BaseModel):
     suggestions: List[DomainSuggestion]

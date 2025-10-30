@@ -74,7 +74,7 @@ class Suggestion(Model):
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
     
-    user_id = fields.IntField(null=True)
+    user_id = fields.CharField(max_length=255, null=True)
     
     # Reverse relations
     domains: fields.ReverseRelation["Domain"]

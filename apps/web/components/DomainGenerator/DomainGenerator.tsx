@@ -4,6 +4,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Domain, DomainStatus, StreamMessage } from '@/lib/types';
+import { useSession } from '@/lib/auth-client';
 
 // Components
 import { DomainRow } from '@/components/DomainGenerator';
@@ -21,6 +22,7 @@ type DomainGeneratorProps = {
 export default function DomainGenerator({
     onDomainsStatusChange,
 }: DomainGeneratorProps) {
+    const { data: session } = useSession();
     const [userInput, setUserInput] = useState('');
     const [domains, setDomains] = useState<Domain[]>([]);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -67,12 +69,20 @@ export default function DomainGenerator({
 
     const fetchSuggestions = async (controller: AbortController) => {
         try {
+            const requestBody: { description: string; user_id?: string } = {
+                description: userInput,
+            };
+
+            if (session?.user?.id) {
+                requestBody.user_id = session.user.id;
+            }
+
             const response = await fetch(DOMAIN_SUGGESTION_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ description: userInput }),
+                body: JSON.stringify(requestBody),
                 signal: controller.signal,
             });
 

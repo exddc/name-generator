@@ -337,7 +337,8 @@ async def suggest(
         settings.groq_model,
         PromptType.LEGACY.value,
         domains_to_store,
-        metrics
+        metrics,
+        request.user_id
     )
 
     return ResponseDomainSuggestion(
@@ -496,7 +497,8 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
                 settings.groq_model,
                 PromptType.LEGACY.value,
                 domains_to_store,
-                metrics
+                metrics,
+                request.user_id
             )
         )
 

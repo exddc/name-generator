@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { useSession } from '@/lib/auth-client';
 
 // Components
 import {
@@ -16,6 +17,7 @@ import {
 
 export default function Header() {
     const [showBorder, setShowBorder] = useState(false);
+    const { data: session } = useSession();
 
     useEffect(() => {
         function handleScroll() {
@@ -68,7 +70,11 @@ export default function Header() {
                                     asChild
                                     className={navigationMenuTriggerStyle()}
                                 >
-                                    <Link href="/login">Login</Link>
+                                    {session?.user ? (
+                                        <Link href="/profile">Profile</Link>
+                                    ) : (
+                                        <Link href="/login">Login</Link>
+                                    )}
                                 </NavigationMenuLink>
                             </NavigationMenuItem>
                         </NavigationMenuList>

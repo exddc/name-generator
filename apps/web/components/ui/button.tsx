@@ -12,7 +12,7 @@ const buttonVariants = cva(
                 default:
                     'bg-white border border-gray-300 backdrop-blur-lg bg-opacity-75 hover:bg-opacity-100 hover:shadow-sm  hover:border-gray-400',
                 destructive:
-                    'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90',
+                    'bg-destructive/90 border border-destructive/10 text-destructive-foreground backdrop-blur-lg hover:bg-destructive hover:shadow-sm hover:border-destructive',
                 outline:
                     'border border-gray-400 hover:shadow-sm hover:border-gray-600',
                 secondary:

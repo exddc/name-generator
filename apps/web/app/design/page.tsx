@@ -19,6 +19,7 @@ export default function Home() {
                     <Button variant="outline" size="sm">
                         Outline Small
                     </Button>
+                    <Button variant="destructive">Destructive</Button>
                 </div>
                 <Card className="h-64">
                     <div className="w-full max-w-2xl flex flex-row items-center justify-center gap-4">
@@ -27,6 +28,7 @@ export default function Home() {
                         <Button variant="outline" size="sm">
                             Outline Small
                         </Button>
+                        <Button variant="destructive">Destructive</Button>
                     </div>
                 </Card>
             </Card>
