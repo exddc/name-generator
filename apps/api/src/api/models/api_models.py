@@ -77,14 +77,9 @@ class RequestFavorite(BaseModel):
     action: str = Field(pattern="^(fav|unfav)$", description="'fav' to favorite, 'unfav' to unfavorite")
 
 
-class FavoriteResponse(BaseModel):
-    id: int
-    domain: str
-    created_at: datetime.datetime
-
 
 class ResponseFavorites(BaseModel):
-    favorites: List[FavoriteResponse]
+    favorites: List[DomainSuggestion]
     total: int
     page: int
     page_size: int

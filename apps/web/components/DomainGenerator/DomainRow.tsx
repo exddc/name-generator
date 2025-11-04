@@ -2,27 +2,119 @@
 
 // Libraries
 import React, { useEffect, useRef, useState } from 'react';
-import { Domain, DomainStatus, DomainStatusColor } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import {
+    Domain,
+    DomainStatusColor,
+    RatingRequestBody,
+    FavoriteRequestBody,
+} from '@/lib/types';
+import { cn, getAnonRandomId } from '@/lib/utils';
+import { useSession } from '@/lib/auth-client';
 
 // Components
 import Link from 'next/link';
-import { ChevronDown, Heart, ShoppingCart } from 'lucide-react';
+import {
+    ChevronDown,
+    Heart,
+    ShoppingCart,
+    ThumbsDown,
+    ThumbsUp,
+} from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '../ui/button';
 
 // Constants
 const DOMAIN_VARIANTS_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/variants/stream`;
+const RATING_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
+const RATINGS_GET_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
+const FAVORITE_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/user/favorite`;
 
 export default function DomainRow({ domain }: { domain: Domain }) {
+    const { data: session } = useSession();
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const [variants, setVariants] = useState<Domain[]>([]);
     const [displayCount, setDisplayCount] = useState(5);
     const [fetchLimit, setFetchLimit] = useState(5);
     const [isStreamFinished, setIsStreamFinished] = useState(true);
+    const [votingDomain, setVotingDomain] = useState<string | null>(null);
+    const [domainVotes, setDomainVotes] = useState<Map<string, 1 | -1>>(
+        new Map()
+    );
+    const [favoritedDomains, setFavoritedDomains] = useState<Set<string>>(
+        new Set()
+    );
+    const [favoritingDomain, setFavoritingDomain] = useState<string | null>(
+        null
+    );
 
     const abortControllerRef = useRef<AbortController | null>(null);
+
+    // Fetch existing ratings
+    useEffect(() => {
+        const fetchRatings = async () => {
+            try {
+                const params = new URLSearchParams();
+                if (session?.user?.id) {
+                    params.append('user_id', session.user.id);
+                } else {
+                    params.append('anon_random_id', getAnonRandomId());
+                }
+                params.append('page_size', '100'); // Fetch enough ratings
+
+                const response = await fetch(
+                    `${RATINGS_GET_URL}?${params.toString()}`
+                );
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const votesMap = new Map<string, 1 | -1>();
+                    data.ratings?.forEach(
+                        (rating: { domain: string; vote: number }) => {
+                            votesMap.set(rating.domain, rating.vote as 1 | -1);
+                        }
+                    );
+                    setDomainVotes(votesMap);
+                }
+            } catch (error) {
+                console.error('Failed to fetch ratings:', error);
+            }
+        };
+
+        fetchRatings();
+    }, [session?.user?.id]);
+
+    // Fetch existing favorites
+    useEffect(() => {
+        const fetchFavorites = async () => {
+            if (!session?.user?.id) {
+                return; // Favorites require authentication
+            }
+
+            try {
+                const params = new URLSearchParams();
+                params.append('user_id', session.user.id);
+                params.append('page_size', '100'); // Fetch enough favorites
+
+                const response = await fetch(
+                    `${FAVORITE_API_URL}?${params.toString()}`
+                );
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const favoritesSet = new Set<string>();
+                    data.favorites?.forEach((favorite: { domain: string }) => {
+                        favoritesSet.add(favorite.domain);
+                    });
+                    setFavoritedDomains(favoritesSet);
+                }
+            } catch (error) {
+                console.error('Failed to fetch favorites:', error);
+            }
+        };
+
+        fetchFavorites();
+    }, [session?.user?.id]);
 
     useEffect(() => {
         if (!open) {
@@ -129,6 +221,119 @@ export default function DomainRow({ domain }: { domain: Domain }) {
     const canShowMoreLocal = displayCount < variants.length;
     const canGenerateMore = isStreamFinished && !loading;
 
+    const handleVote = async (domain: string, vote: number) => {
+        if (votingDomain === domain) {
+            return;
+        }
+
+        setVotingDomain(domain);
+
+        try {
+            let requestBody: RatingRequestBody = {
+                domain,
+                vote: vote as 1 | -1,
+            };
+
+            if (session?.user?.id) {
+                requestBody.user_id = session.user.id;
+            } else {
+                requestBody.anon_random_id = getAnonRandomId();
+            }
+
+            const response = await fetch(RATING_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(
+                    errorData.detail ||
+                        `Failed to submit vote: ${response.statusText}`
+                );
+            }
+
+            const result = await response.json();
+
+            // Update local vote state
+            setDomainVotes((prev) => {
+                const next = new Map(prev);
+                next.set(domain, vote as 1 | -1);
+                return next;
+            });
+        } catch (error) {
+            console.error('Failed to submit vote:', error);
+        } finally {
+            setVotingDomain(null);
+        }
+    };
+
+    const getVoteForDomain = (domainName: string): 1 | -1 | undefined => {
+        return domainVotes.get(domainName);
+    };
+
+    const isDomainFavorited = (domainName: string): boolean => {
+        return favoritedDomains.has(domainName);
+    };
+
+    const handleFavorite = async (domain: string) => {
+        if (!session?.user?.id) {
+            return;
+        }
+
+        if (favoritingDomain === domain) {
+            return;
+        }
+
+        setFavoritingDomain(domain);
+
+        try {
+            const isFavorited = isDomainFavorited(domain);
+            const action = isFavorited ? 'unfav' : 'fav';
+
+            const requestBody: FavoriteRequestBody = {
+                domain,
+                user_id: session.user.id,
+                action,
+            };
+
+            const response = await fetch(FAVORITE_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(
+                    errorData.detail ||
+                        `Failed to ${
+                            action === 'fav' ? 'favorite' : 'unfavorite'
+                        } domain: ${response.statusText}`
+                );
+            }
+
+            setFavoritedDomains((prev) => {
+                const next = new Set(prev);
+                if (action === 'fav') {
+                    next.add(domain);
+                } else {
+                    next.delete(domain);
+                }
+                return next;
+            });
+        } catch (error) {
+            console.error('Failed to toggle favorite:', error);
+        } finally {
+            setFavoritingDomain(null);
+        }
+    };
+
     return (
         <Card className={cn('flex flex-col p-3 rounded-xl', open && 'gap-2')}>
             <div className="flex items-center justify-between">
@@ -149,10 +354,73 @@ export default function DomainRow({ domain }: { domain: Domain }) {
                     >
                         {domain.status}
                     </span>
+                    <div className="flex items-center gap-1">
+                        <button
+                            className={cn(
+                                'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                getVoteForDomain(domain.domain) === 1 &&
+                                    'text-green-600'
+                            )}
+                            onClick={() => handleVote(domain.domain, 1)}
+                        >
+                            <ThumbsUp
+                                className={cn(
+                                    'size-3',
+                                    getVoteForDomain(domain.domain) === 1 &&
+                                        'text-green-600'
+                                )}
+                                strokeWidth={1.75}
+                            />
+                        </button>
+                        <button
+                            className={cn(
+                                'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                getVoteForDomain(domain.domain) === -1 &&
+                                    'text-red-600'
+                            )}
+                            onClick={() => handleVote(domain.domain, -1)}
+                        >
+                            <ThumbsDown
+                                className={cn(
+                                    'size-3',
+                                    getVoteForDomain(domain.domain) === -1 &&
+                                        'text-red-600'
+                                )}
+                                strokeWidth={1.75}
+                            />
+                        </button>
+                    </div>
                 </div>
                 <div className="flex gap-4 items-center justify-end">
-                    <button className="hover:cursor-pointer hover:scale-110 transition-all duration-300">
-                        <Heart className="size-4" strokeWidth={1.75} />
+                    <button
+                        type="button"
+                        className={cn(
+                            'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                            isDomainFavorited(domain.domain) && 'text-red-600',
+                            !session?.user?.id &&
+                                'opacity-50 cursor-not-allowed'
+                        )}
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+
+                            handleFavorite(domain.domain);
+                        }}
+                        disabled={!session?.user?.id}
+                    >
+                        <Heart
+                            className={cn(
+                                'size-4 pointer-events-none',
+                                isDomainFavorited(domain.domain) &&
+                                    'text-red-600 fill-red-600'
+                            )}
+                            strokeWidth={1.75}
+                            fill={
+                                isDomainFavorited(domain.domain)
+                                    ? 'currentColor'
+                                    : 'none'
+                            }
+                        />
                     </button>
                     <button className="hover:cursor-pointer hover:scale-110 transition-all duration-300">
                         <ShoppingCart className="size-4" strokeWidth={1.75} />
@@ -200,12 +468,79 @@ export default function DomainRow({ domain }: { domain: Domain }) {
                                 >
                                     {variant.status}
                                 </span>
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        className={cn(
+                                            'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                            getVoteForDomain(variant.domain) ===
+                                                1 && 'text-green-600'
+                                        )}
+                                        onClick={() =>
+                                            handleVote(variant.domain, 1)
+                                        }
+                                    >
+                                        <ThumbsUp
+                                            className={cn(
+                                                'size-3',
+                                                getVoteForDomain(
+                                                    variant.domain
+                                                ) === 1 && 'text-green-600'
+                                            )}
+                                            strokeWidth={1.75}
+                                        />
+                                    </button>
+                                    <button
+                                        className={cn(
+                                            'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                            getVoteForDomain(variant.domain) ===
+                                                -1 && 'text-red-600'
+                                        )}
+                                        onClick={() =>
+                                            handleVote(variant.domain, -1)
+                                        }
+                                    >
+                                        <ThumbsDown
+                                            className={cn(
+                                                'size-3',
+                                                getVoteForDomain(
+                                                    variant.domain
+                                                ) === -1 && 'text-red-600'
+                                            )}
+                                            strokeWidth={1.75}
+                                        />
+                                    </button>
+                                </div>
                             </div>
                             <div className="flex gap-4 items-center justify-end">
-                                <button className="hover:cursor-pointer hover:scale-110 transition-all duration-300">
+                                <button
+                                    type="button"
+                                    className={cn(
+                                        'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                        isDomainFavorited(variant.domain) &&
+                                            'text-red-600',
+                                        !session?.user?.id &&
+                                            'opacity-50 cursor-not-allowed'
+                                    )}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+
+                                        handleFavorite(variant.domain);
+                                    }}
+                                    disabled={!session?.user?.id}
+                                >
                                     <Heart
-                                        className="size-4"
+                                        className={cn(
+                                            'size-4 pointer-events-none',
+                                            isDomainFavorited(variant.domain) &&
+                                                'text-red-600 fill-red-600'
+                                        )}
                                         strokeWidth={1.75}
+                                        fill={
+                                            isDomainFavorited(variant.domain)
+                                                ? 'currentColor'
+                                                : 'none'
+                                        }
                                     />
                                 </button>
                                 <button className="hover:cursor-pointer hover:scale-110 transition-all duration-300">

@@ -4,8 +4,8 @@ from fastapi import APIRouter, HTTPException, Query
 
 from api.models.api_models import (
     RequestFavorite,
-    FavoriteResponse,
     ResponseFavorites,
+    DomainSuggestion,
 )
 from api.models.db_models import Domain as DomainDB, Favorite as FavoriteDB
 
@@ -109,17 +109,20 @@ async def get_favorites(
     offset = (page - 1) * page_size
     favorites = await FavoriteDB.filter(user_id=user_id).order_by("-created_at").offset(offset).limit(page_size).prefetch_related("domain")
     
-    favorite_responses = [
-        FavoriteResponse(
-            id=favorite.id,
+    domain_suggestions = [
+        DomainSuggestion(
             domain=favorite.domain.domain,
-            created_at=favorite.created_at,
+            tld=favorite.domain.tld,
+            status=favorite.domain.status,
+            rating=None,  # Can be calculated from ratings if needed
+            created_at=favorite.domain.created_at,
+            updated_at=favorite.domain.updated_at,
         )
         for favorite in favorites
     ]
     
     return ResponseFavorites(
-        favorites=favorite_responses,
+        favorites=domain_suggestions,
         total=total,
         page=page,
         page_size=page_size,

@@ -26,3 +26,16 @@ export type StreamMessage = {
     available_count?: number;
     total?: number;
 };
+
+export type RatingRequestBody = {
+    domain: string;
+    vote: 1 | -1;
+    user_id?: string;
+    anon_random_id?: string;
+}
+
+export type FavoriteRequestBody = {
+    domain: string;
+    user_id?: string;
+    action: 'fav' | 'unfav';
+}
