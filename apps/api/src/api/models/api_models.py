@@ -1,13 +1,20 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List
 import datetime
 from enum import Enum
 
+# Enums
 class DomainStatus(str, Enum):
     AVAILABLE = "available"
     REGISTERED = "registered"
     UNKNOWN = "unknown"
 
+class DomainAction(str, Enum):
+    UPVOTE = "upvote"
+    DOWNVOTE = "downvote"
+    FAVORITE_TOGGLE = "favorite_toggle"
+
+# Models
 class DomainSuggestion(BaseModel):
     domain: str
     tld: str
@@ -30,3 +37,54 @@ class RequestDomainStatus(BaseModel):
 
 class ResponseDomainStatus(BaseModel):
     status: DomainStatus
+
+class RequestDomainAction(BaseModel):
+    domain: str
+    user_id: str | None = None
+    action: DomainAction
+
+
+class RequestRating(BaseModel):
+    domain: str
+    user_id: str | None = None
+    anon_random_id: str | None = None
+    vote: int = Field(description="1 for upvote, -1 for downvote")
+    
+    @field_validator('vote')
+    @classmethod
+    def validate_vote(cls, v: int) -> int:
+        if v not in (1, -1):
+            raise ValueError('Vote must be 1 (upvote) or -1 (downvote)')
+        return v
+
+
+class RatingResponse(BaseModel):
+    id: int
+    domain: str
+    vote: int
+    created_at: datetime.datetime
+
+
+class ResponseRatings(BaseModel):
+    ratings: List[RatingResponse]
+    total: int
+    page: int
+    page_size: int
+
+class RequestFavorite(BaseModel):
+    domain: str
+    user_id: str
+    action: str = Field(pattern="^(fav|unfav)$", description="'fav' to favorite, 'unfav' to unfavorite")
+
+
+class FavoriteResponse(BaseModel):
+    id: int
+    domain: str
+    created_at: datetime.datetime
+
+
+class ResponseFavorites(BaseModel):
+    favorites: List[FavoriteResponse]
+    total: int
+    page: int
+    page_size: int

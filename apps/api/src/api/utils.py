@@ -9,7 +9,8 @@ from api.models.api_models import DomainStatus
 from api.models.db_models import (
     Domain as DomainDB, 
     Suggestion as SuggestionDB,
-    SuggestionMetrics
+    SuggestionMetrics,
+    Rating as RatingDB,
 )
 
 
@@ -332,3 +333,127 @@ async def store_domain_status(domain: str, status: DomainStatus) -> None:
         await update_domain_in_db(domain, status)
     except Exception as e:
         print(f"[Background] Failed to store domain status for {domain}: {e}")
+
+
+async def create_domain_rating(
+    domain: str,
+    user_id: str | None,
+    anon_random_id: str | None,
+    vote: int
+) -> RatingDB:
+    """
+    Create or update a rating entry for a domain.
+    
+    Checks if domain exists. If user already rated, updates the existing rating.
+    One user can only have one rating per domain.
+    
+    Args:
+        domain: Full domain name (e.g., 'example.com')
+        user_id: User ID if logged in, None otherwise
+        anon_random_id: Anonymous session ID if not logged in, None otherwise
+        vote: 1 for upvote, -1 for downvote
+        
+    Returns:
+        RatingDB: The created or updated rating record
+        
+    Raises:
+        ValueError: If domain doesn't exist or invalid parameters
+        Exception: On database interaction errors
+    """
+    if not user_id and not anon_random_id:
+        raise ValueError("Either user_id or anon_random_id is required")
+
+    if vote not in (1, -1):
+        raise ValueError("Vote must be 1 (upvote) or -1 (downvote)")
+
+    domain_obj = await DomainDB.get_or_none(domain=domain)
+    if not domain_obj:
+        raise ValueError("Domain not found")
+    
+    if user_id:
+        rater_key = f"user:{user_id}"
+    else:
+        rater_key = f"anon:{anon_random_id}"
+    
+    existing_rating = await RatingDB.get_or_none(domain=domain_obj, rater_key=rater_key)
+    
+    if existing_rating:
+        old_vote = existing_rating.vote
+        
+        if old_vote != vote:
+            existing_rating.vote = vote
+            await existing_rating.save()
+            
+            if old_vote == 1:
+                domain_obj.upvotes = max(0, domain_obj.upvotes - 1)
+            else:
+                domain_obj.downvotes = max(0, domain_obj.downvotes - 1)
+            
+            if vote == 1:
+                domain_obj.upvotes += 1
+            else:
+                domain_obj.downvotes += 1
+            await domain_obj.save()
+        
+        return existing_rating
+    else:
+        latest_suggestion = await SuggestionDB.all().order_by("-id").first()
+        if not latest_suggestion:
+            latest_suggestion = await SuggestionDB.create(
+                description="Manual rating",
+                count=1,
+                model="manual",
+                prompt="manual",
+            )
+        
+        rating = await RatingDB.create(
+            domain=domain_obj,
+            suggestion=latest_suggestion,
+            vote=vote,
+            rater_key=rater_key,
+            user_id=None,
+        )
+        
+        if vote == 1:
+            domain_obj.upvotes += 1
+        else:
+            domain_obj.downvotes += 1
+        await domain_obj.save()
+        
+        return rating
+
+
+async def migrate_anon_ratings_to_user(anon_random_id: str, user_id: str) -> int:
+    """
+    Migrate anonymous ratings to a user ID when user signs up.
+    
+    Finds all ratings with anon_random_id and updates them to use user_id.
+    This allows preserving ratings when a user signs up in the same session.
+    
+    Args:
+        anon_random_id: The anonymous session ID to migrate from
+        user_id: The user ID to migrate to
+        
+    Returns:
+        int: Number of ratings migrated
+    """
+    anon_rater_key = f"anon:{anon_random_id}"
+    user_rater_key = f"user:{user_id}"
+    
+    anon_ratings = await RatingDB.filter(rater_key=anon_rater_key).all()
+    
+    migrated_count = 0
+    for rating in anon_ratings:
+        existing_user_rating = await RatingDB.get_or_none(
+            domain=rating.domain,
+            rater_key=user_rater_key
+        )
+        
+        if existing_user_rating:
+            await rating.delete()
+        else:
+            rating.rater_key = user_rater_key
+            await rating.save()
+            migrated_count += 1
+    
+    return migrated_count

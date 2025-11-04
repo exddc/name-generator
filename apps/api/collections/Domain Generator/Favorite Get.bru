@@ -1,0 +1,48 @@
+meta {
+  name: Favorite Get
+  type: http
+  seq: 11
+}
+
+get {
+  url: http://localhost:8000/v1/user/favorite?user_id=user123&page=1&page_size=20
+  body: none
+  auth: inherit
+}
+
+params:query {
+  user_id: user123
+  page: 1
+  page_size: 20
+}
+
+docs {
+  # Get Favorites Endpoint
+  
+  Returns all favorited domains for a user.
+  
+  ## Query Parameters:
+  - **user_id** (required): User ID to get favorites for
+  - **page** (optional, default: 1): Page number for pagination
+  - **page_size** (optional, default: 20, max: 100): Number of items per page
+  
+  ## Examples:
+  
+  ### Get favorites for user
+  ```
+  GET /v1/user/favorite?user_id=user123&page=1&page_size=20
+  ```
+  
+  ## Response:
+  Returns paginated list of favorites with:
+  - `favorites`: Array of favorite objects (each containing id, domain, created_at)
+  - `total`: Total number of favorites
+  - `page`: Current page number
+  - `page_size`: Number of items per page
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+

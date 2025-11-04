@@ -19,11 +19,20 @@ from api.models.api_models import (
     RequestDomainSuggestion,
     ResponseDomainSuggestion,
     ResponseDomainStatus,
+    RequestRating,
+    RatingResponse,
+    ResponseRatings,
 )
 from api.suggestor.groq import GroqSuggestor
 from api.suggestor.prompts import PromptType
 from api.suggestor.tlds import POPULAR_TLDS
-from api.utils import store_suggestion_batch, store_domain_status, MetricsTracker
+from api.utils import (
+    store_suggestion_batch,
+    store_domain_status,
+    MetricsTracker,
+    create_domain_rating,
+)
+from api.models.db_models import Rating as RatingDB
 
 
 settings = get_settings()
@@ -54,6 +63,88 @@ async def get_domain_status(
     background_tasks.add_task(store_domain_status, domain, mapped_status)
 
     return ResponseDomainStatus(status=mapped_status)
+
+@router.post("/rating")
+async def create_rating(
+    request: RequestRating,
+) -> RatingResponse:
+    """
+    Create or update a rating (upvote or downvote) for a domain.
+    
+    - Checks if domain exists
+    - If user already rated, updates the existing rating
+    - One user can only have one rating per domain
+    - Requires either user_id or anon_random_id
+    """
+    try:
+        vote_value = 1 if request.vote == 1 else -1
+        rating = await create_domain_rating(
+            domain=request.domain,
+            user_id=request.user_id,
+            anon_random_id=request.anon_random_id,
+            vote=vote_value
+        )
+        
+        return RatingResponse(
+            id=rating.id,
+            domain=request.domain,
+            vote=rating.vote,
+            created_at=rating.created_at,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create rating: {str(e)}"
+        )
+
+
+@router.get("/rating")
+async def get_ratings(
+    user_id: str | None = Query(None, description="User ID to get ratings for"),
+    anon_random_id: str | None = Query(None, description="Anonymous session ID to get ratings for"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Number of items per page"),
+) -> ResponseRatings:
+    """
+    Get all ratings for a user.
+    
+    Requires either user_id or anon_random_id.
+    Returns paginated results.
+    """
+    if not user_id and not anon_random_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Either user_id or anon_random_id is required"
+        )
+    
+    if user_id:
+        rater_key = f"user:{user_id}"
+    else:
+        rater_key = f"anon:{anon_random_id}"
+    
+    total = await RatingDB.filter(rater_key=rater_key).count()
+    
+    offset = (page - 1) * page_size
+    ratings = await RatingDB.filter(rater_key=rater_key).order_by("-created_at").offset(offset).limit(page_size).prefetch_related("domain")
+    
+    rating_responses = [
+        RatingResponse(
+            id=rating.id,
+            domain=rating.domain.domain,
+            vote=rating.vote,
+            created_at=rating.created_at,
+        )
+        for rating in ratings
+    ]
+    
+    return ResponseRatings(
+        ratings=rating_responses,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/variants")

@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from tortoise.contrib.fastapi import register_tortoise
 
 from api import __title__, __description__, __version__
-from api.routes import domain, health
+from api.routes import domain, health, user
 from api.config import get_settings
 
 _app: FastAPI | None = None
@@ -41,6 +41,7 @@ def init_fastapi() -> FastAPI:
 
     # Routes
     app.include_router(domain.router, prefix="/v1", tags=["domain"])
+    app.include_router(user.router, prefix="/v1", tags=["user"])
     app.include_router(health.router, tags=["health"])
 
     return app

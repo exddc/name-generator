@@ -1,0 +1,61 @@
+meta {
+  name: Favorite Create
+  type: http
+  seq: 10
+}
+
+post {
+  url: http://localhost:8000/v1/user/favorite
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "domain": "example.com",
+    "user_id": "user123",
+    "action": "fav"
+  }
+}
+
+docs {
+  # Favorite/Unfavorite Domain Endpoint
+  
+  Favorite or unfavorite a domain for a user.
+  
+  ## Body Parameters:
+  - **domain** (required): The domain name to favorite/unfavorite (e.g., "example.com")
+  - **user_id** (required): User ID
+  - **action** (required): "fav" to favorite, "unfav" to unfavorite
+  
+  ## Examples:
+  
+  ### Favorite a domain
+  ```json
+  {
+    "domain": "example.com",
+    "user_id": "user123",
+    "action": "fav"
+  }
+  ```
+  Request: `POST /v1/user/favorite`
+  
+  ### Unfavorite a domain
+  ```json
+  {
+    "domain": "example.com",
+    "user_id": "user123",
+    "action": "unfav"
+  }
+  ```
+  Request: `POST /v1/user/favorite`
+  
+  ## Response:
+  Returns success status and action performed.
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+

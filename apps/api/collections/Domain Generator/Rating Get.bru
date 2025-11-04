@@ -1,0 +1,57 @@
+meta {
+  name: Rating Get
+  type: http
+  seq: 9
+}
+
+get {
+  url: http://localhost:8000/v1/domain/rating?user_id=user123&page=1&page_size=20
+  body: none
+  auth: inherit
+}
+
+params:query {
+  user_id: user123
+  anon_random_id: ~
+  page: 1
+  page_size: 20
+}
+
+docs {
+  # Get Ratings Endpoint
+  
+  Returns all ratings for a user or anonymous session.
+  
+  ## Query Parameters:
+  - **user_id** (optional): User ID to get ratings for
+  - **anon_random_id** (optional): Anonymous session ID to get ratings for
+  - **page** (optional, default: 1): Page number for pagination
+  - **page_size** (optional, default: 20, max: 100): Number of items per page
+  
+  **Note**: Either `user_id` or `anon_random_id` must be provided.
+  
+  ## Examples:
+  
+  ### Get ratings for logged-in user
+  ```
+  GET /v1/domain/rating?user_id=user123&page=1&page_size=20
+  ```
+  
+  ### Get ratings for anonymous session
+  ```
+  GET /v1/domain/rating?anon_random_id=anon_session_xyz&page=1&page_size=20
+  ```
+  
+  ## Response:
+  Returns paginated list of ratings with:
+  - `ratings`: Array of rating objects
+  - `total`: Total number of ratings
+  - `page`: Current page number
+  - `page_size`: Number of items per page
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+

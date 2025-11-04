@@ -1,0 +1,73 @@
+meta {
+  name: Rating Create
+  type: http
+  seq: 8
+}
+
+post {
+  url: http://localhost:8000/v1/domain/rating
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "domain": "example.com",
+    "vote": 1,
+    "user_id": "user123"
+  }
+}
+
+docs {
+  # Create or Update Rating Endpoint
+  
+  Creates or updates a rating (upvote or downvote) for a domain.
+  
+  ## Parameters:
+  - **domain** (required): The domain name to rate (e.g., "example.com")
+  - **vote** (required): 1 for upvote, -1 for downvote
+  - **user_id** (optional): User ID if logged in
+  - **anon_random_id** (optional): Anonymous session ID if not logged in
+  
+  **Note**: Either `user_id` or `anon_random_id` must be provided.
+  
+  ## Examples:
+  
+  ### Upvote with User ID
+  ```json
+  {
+    "domain": "example.com",
+    "vote": 1,
+    "user_id": "user123"
+  }
+  ```
+  
+  ### Downvote with User ID
+  ```json
+  {
+    "domain": "example.com",
+    "vote": -1,
+    "user_id": "user123"
+  }
+  ```
+  
+  ### Upvote with Anonymous ID
+  ```json
+  {
+    "domain": "example.com",
+    "vote": 1,
+    "anon_random_id": "anon_session_xyz"
+  }
+  ```
+  
+  ## Behavior:
+  - If user hasn't rated the domain before, creates a new rating
+  - If user already rated the domain, updates the existing rating
+  - One user can only have one rating per domain
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+

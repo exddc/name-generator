@@ -113,6 +113,7 @@ class Domain(Model):
     
     # Reverse relations
     ratings: fields.ReverseRelation["Rating"]
+    favorites: fields.ReverseRelation["Favorite"]
 
     class Meta:
         table = "domains"
@@ -164,4 +165,30 @@ class Rating(Model):
             ("suggestion_id",),
             ("rater_key",),
             ("user_id",),
+        ]
+
+
+class Favorite(Model):
+    """
+    User favorites for domains.
+    
+    Stores which domains a user has favorited.
+    """
+    id = fields.IntField(pk=True)
+    
+    domain: fields.ForeignKeyRelation[Domain] = fields.ForeignKeyField(
+        "models.Domain", related_name="favorites", on_delete=fields.CASCADE
+    )
+    
+    user_id = fields.CharField(max_length=255)
+    
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "favorites"
+        unique_together = (("domain", "user_id"),)
+        indexes = [
+            ("domain",),
+            ("user_id",),
+            ("created_at",),
         ]
