@@ -34,7 +34,7 @@ from api.utils import (
     MetricsTracker,
     create_domain_rating,
 )
-from api.models.db_models import Rating as RatingDB, Domain as DomainDB
+from api.models.db_models import Rating as RatingDB, Domain as DomainDB, Favorite as FavoriteDB
 from tortoise import connections
 from tortoise.expressions import Q
 
@@ -113,6 +113,7 @@ async def get_top_domains(
     status: str | None = Query("available", description="Filter by status: available, registered, unknown, or null for all"),
     min_rating: int | None = Query(1, description="Minimum rating (upvotes - downvotes). Default 1 for positive ratings."),
     search: str | None = Query(None, description="Search domains by name (partial match)"),
+    user_id: str | None = Query(None, description="User ID to check favorites for"),
 ) -> ResponseDomain:
     """
     Get paginated highest rated domains.
@@ -131,6 +132,11 @@ async def get_top_domains(
         raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
     
     offset = (page - 1) * page_size
+    
+    favorited_domains: set[str] = set()
+    if user_id:
+        favorites = await FavoriteDB.filter(user_id=user_id).prefetch_related("domain").all()
+        favorited_domains = {fav.domain.domain for fav in favorites}
     
     if sort_by == "rating":
         conn = connections.get("default")
@@ -176,6 +182,7 @@ async def get_top_domains(
             for row in result[1]:
                 domain_val, domain_name, tld, status_val, last_checked, created_at, updated_at, upvotes, downvotes, rating_score, suggestion_id, model, prompt = row
                 total_ratings = upvotes + downvotes
+                is_favorite = domain_val in favorited_domains if user_id else None
                 domain_obj = DomainModel(
                     domain=domain_val,
                     tld=tld,
@@ -186,6 +193,7 @@ async def get_top_domains(
                     total_ratings=total_ratings,
                     model=model or "unknown",
                     prompt=prompt or "unknown",
+                    is_favorite=is_favorite,
                 )
                 suggestions.append(domain_obj)
     else:
@@ -240,6 +248,7 @@ async def get_top_domains(
             
             total_ratings = domain.upvotes + domain.downvotes
             suggestion_obj = domain.suggestion
+            is_favorite = domain.domain in favorited_domains if user_id else None
             
             domain_obj = DomainModel(
                 domain=domain.domain,
@@ -251,6 +260,7 @@ async def get_top_domains(
                 total_ratings=total_ratings,
                 model=suggestion_obj.model if suggestion_obj else "unknown",
                 prompt=suggestion_obj.prompt if suggestion_obj else "unknown",
+                is_favorite=is_favorite,
             )
             suggestions.append(domain_obj)
         

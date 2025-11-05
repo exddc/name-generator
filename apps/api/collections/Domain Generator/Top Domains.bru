@@ -1,0 +1,68 @@
+meta {
+  name: Top Domains
+  type: http
+  seq: 11
+}
+
+get {
+  url: http://localhost:8000/v1/domain/top
+  body: none
+  auth: inherit
+}
+
+params:query {
+  page: 1
+  page_size: 20
+  sort_by: rating
+  order: desc
+  status: available
+  min_rating: 1
+  search: {{null}}
+  user_id: {{null}}
+}
+
+docs {
+  # Get Top Rated Domains Endpoint
+  
+  Get paginated highest rated domains.
+  
+  Returns domains ordered by rating (upvotes - downvotes) by default.
+  Supports sorting by rating, domain, tld, status, last_checked, and created_at.
+  Default filters: status=available, min_rating=1 (positive ratings only).
+  
+  ## Query Parameters:
+  - **page** (optional, default: 1): Page number (min: 1)
+  - **page_size** (optional, default: 20): Number of items per page (min: 1, max: 100)
+  - **sort_by** (optional, default: "rating"): Sort by: rating, domain, tld, status, last_checked, created_at
+  - **order** (optional, default: "desc"): Order: asc or desc
+  - **status** (optional, default: "available"): Filter by status: available, registered, unknown, or empty string for all
+  - **min_rating** (optional, default: 1): Minimum rating (upvotes - downvotes). Default 1 for positive ratings.
+  - **search** (optional): Search domains by name (partial match)
+  - **user_id** (optional): User ID to check favorites for. When provided, includes is_favorite field in response.
+  
+  ## Examples:
+  
+  ### Get top rated available domains
+  Request: `GET /v1/domain/top?page=1&page_size=20&sort_by=rating&order=desc&status=available`
+  
+  ### Get all domains (no status filter)
+  Request: `GET /v1/domain/top?status=`
+  
+  ### Search for domains
+  Request: `GET /v1/domain/top?search=example`
+  
+  ### Get top domains with favorites for logged-in user
+  Request: `GET /v1/domain/top?user_id=user123`
+  
+  ### Sort by domain name ascending
+  Request: `GET /v1/domain/top?sort_by=domain&order=asc`
+  
+  ## Response:
+  Returns paginated list of domains with rating, status, and optional is_favorite field.
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+

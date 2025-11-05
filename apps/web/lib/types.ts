@@ -8,6 +8,7 @@ export interface Domain {
     total_ratings?: number;
     model?: string;
     prompt?: string;
+    is_favorite?: boolean | null;
 }
 
 export enum DomainStatus {

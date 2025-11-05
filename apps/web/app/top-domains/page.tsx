@@ -16,6 +16,7 @@ import {
     DomainStatus,
     DomainStatusColor,
     RatingRequestBody,
+    FavoriteRequestBody,
 } from '@/lib/types';
 import { cn, getAnonRandomId } from '@/lib/utils';
 import {
@@ -25,6 +26,7 @@ import {
     ShoppingCart,
     ThumbsUp,
     ThumbsDown,
+    Heart,
 } from 'lucide-react';
 import { useSession } from '@/lib/auth-client';
 
@@ -41,11 +43,12 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { DomainRow } from '@/components/DomainGenerator';
+import Link from 'next/link';
 
 const TOP_DOMAINS_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/top`;
 const RATING_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
 const RATINGS_GET_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
+const FAVORITE_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/user/favorite`;
 
 type SortBy =
     | 'rating'
@@ -58,7 +61,6 @@ type SortOrder = 'asc' | 'desc';
 
 export default function TopDomains() {
     const router = useRouter();
-    const searchParams = useSearchParams();
     const { data: session } = useSession();
     const [domains, setDomains] = useState<Domain[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -73,13 +75,24 @@ export default function TopDomains() {
     const [domainVotes, setDomainVotes] = useState<Map<string, 1 | -1>>(
         new Map()
     );
+    const [favoritingDomain, setFavoritingDomain] = useState<string | null>(
+        null
+    );
     const pageSize = 20;
+
+    const [statusFilter, setStatusFilter] = useState<'available' | null>(
+        'available'
+    );
+    const [domainLengthFilter, setDomainLengthFilter] = useState<
+        null | '<5' | '<10'
+    >(null);
+    const [tldFilter, setTldFilter] = useState<Set<string>>(new Set());
+    const [allDomains, setAllDomains] = useState<Domain[]>([]);
 
     const [sorting, setSorting] = useState<SortingState>([
         { id: 'rating', desc: true },
     ]);
 
-    // Helper function to cycle through sort states: none → asc → desc → none
     const handleSortToggle = (columnId: string) => {
         const isCurrentlySorted = sortBy === columnId;
 
@@ -88,17 +101,14 @@ export default function TopDomains() {
         let newSorting: SortingState = [];
 
         if (!isCurrentlySorted) {
-            // No sort or different column sorted → Ascending
             newSortBy = columnId as SortBy;
             newSortOrder = 'asc';
             newSorting = [{ id: columnId, desc: false }];
         } else if (sortOrder === 'asc') {
-            // Ascending → Descending
             newSortBy = columnId as SortBy;
             newSortOrder = 'desc';
             newSorting = [{ id: columnId, desc: true }];
         } else {
-            // Descending → No sort (reset to default: rating desc)
             newSortBy = 'rating';
             newSortOrder = 'desc';
             newSorting = [{ id: 'rating', desc: true }];
@@ -136,7 +146,6 @@ export default function TopDomains() {
         };
     }, [isLoading]);
 
-    // Fetch existing ratings
     useEffect(() => {
         const fetchRatings = async () => {
             try {
@@ -221,6 +230,61 @@ export default function TopDomains() {
 
     const getVoteForDomain = (domainName: string): 1 | -1 | undefined => {
         return domainVotes.get(domainName);
+    };
+
+    const handleFavorite = async (domain: string) => {
+        if (!session?.user?.id) {
+            return;
+        }
+
+        if (favoritingDomain === domain) {
+            return;
+        }
+
+        setFavoritingDomain(domain);
+
+        try {
+            const domainObj = allDomains.find((d) => d.domain === domain);
+            const isFavorited = domainObj?.is_favorite ?? false;
+            const action = isFavorited ? 'unfav' : 'fav';
+
+            const requestBody: FavoriteRequestBody = {
+                domain,
+                user_id: session.user.id,
+                action,
+            };
+
+            const response = await fetch(FAVORITE_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(
+                    errorData.detail ||
+                        `Failed to ${
+                            action === 'fav' ? 'favorite' : 'unfavorite'
+                        } domain: ${response.statusText}`
+                );
+            }
+
+            // Update the domain's is_favorite status
+            setAllDomains((prev) =>
+                prev.map((d) =>
+                    d.domain === domain
+                        ? { ...d, is_favorite: !isFavorited }
+                        : d
+                )
+            );
+        } catch (error) {
+            console.error('Failed to toggle favorite:', error);
+        } finally {
+            setFavoritingDomain(null);
+        }
     };
 
     const getSortIndicator = (columnId: string) => {
@@ -409,19 +473,50 @@ export default function TopDomains() {
             {
                 id: 'actions',
                 header: () => <div></div>,
-                cell: ({ row }) => (
-                    <div className="flex justify-center">
-                        <button className="hover:cursor-pointer hover:scale-110 transition-all duration-300">
-                            <ShoppingCart
-                                className="size-4"
-                                strokeWidth={1.75}
-                            />
-                        </button>
-                    </div>
-                ),
+                cell: ({ row }) => {
+                    const domainName = row.original.domain;
+                    const isFavorited = row.original.is_favorite ?? false;
+                    return (
+                        <div className="flex justify-center items-center gap-2">
+                            {session?.user?.id && (
+                                <button
+                                    className={cn(
+                                        'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                        isFavorited && 'text-red-600'
+                                    )}
+                                    onClick={() => handleFavorite(domainName)}
+                                    disabled={favoritingDomain === domainName}
+                                >
+                                    <Heart
+                                        className={cn(
+                                            'size-4',
+                                            isFavorited &&
+                                                'fill-red-600 text-red-600'
+                                        )}
+                                        strokeWidth={1.75}
+                                    />
+                                </button>
+                            )}
+                            <button className="hover:cursor-pointer hover:scale-110 transition-all duration-300">
+                                <ShoppingCart
+                                    className="size-4"
+                                    strokeWidth={1.75}
+                                />
+                            </button>
+                        </div>
+                    );
+                },
             },
         ],
-        [sortBy, sortOrder, domainVotes, votingDomain]
+        [
+            sortBy,
+            sortOrder,
+            domainVotes,
+            votingDomain,
+            favoritingDomain,
+            getVoteForDomain,
+            session?.user?.id,
+        ]
     );
 
     const table = useReactTable({
@@ -446,8 +541,18 @@ export default function TopDomains() {
                 params.append('sort_by', sortBy);
                 params.append('order', sortOrder);
 
+                if (statusFilter) {
+                    params.append('status', statusFilter);
+                } else {
+                    params.append('status', '');
+                }
+
                 if (debouncedSearchQuery.trim()) {
                     params.append('search', debouncedSearchQuery.trim());
+                }
+
+                if (session?.user?.id) {
+                    params.append('user_id', session.user.id);
                 }
 
                 const response = await fetch(
@@ -468,6 +573,7 @@ export default function TopDomains() {
                                 total_ratings?: number;
                                 model?: string;
                                 prompt?: string;
+                                is_favorite?: boolean | null;
                             }) => {
                                 return {
                                     domain: suggestion.domain,
@@ -479,10 +585,11 @@ export default function TopDomains() {
                                     total_ratings: suggestion.total_ratings,
                                     model: suggestion.model,
                                     prompt: suggestion.prompt,
+                                    is_favorite: suggestion.is_favorite,
                                 };
                             }
                         ) || [];
-                    setDomains(domainObjects);
+                    setAllDomains(domainObjects);
                     setTotal(data.total || 0);
                 }
             } catch (error) {
@@ -493,20 +600,50 @@ export default function TopDomains() {
         };
 
         fetchDomains();
-    }, [page, sortBy, sortOrder, debouncedSearchQuery]);
+    }, [
+        page,
+        sortBy,
+        sortOrder,
+        debouncedSearchQuery,
+        statusFilter,
+        session?.user?.id,
+    ]);
 
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
-        setPage(1);
-    };
+    useEffect(() => {
+        let filtered = [...allDomains];
+
+        if (domainLengthFilter === '<5') {
+            filtered = filtered.filter((d) => {
+                const domainName = d.domain.split('.')[0];
+                return domainName.length < 5;
+            });
+        } else if (domainLengthFilter === '<10') {
+            filtered = filtered.filter((d) => {
+                const domainName = d.domain.split('.')[0];
+                return domainName.length < 10;
+            });
+        }
+
+        if (tldFilter.size > 0) {
+            filtered = filtered.filter((d) => tldFilter.has(d.tld));
+        }
+
+        setDomains(filtered);
+    }, [allDomains, domainLengthFilter, tldFilter]);
+
+    const uniqueTlds = useMemo(() => {
+        const tlds = new Set<string>();
+        allDomains.forEach((d) => tlds.add(d.tld));
+        return Array.from(tlds).sort();
+    }, [allDomains]);
 
     const totalPages = Math.ceil(total / pageSize);
 
     return (
         <main className="flex flex-col items-center justify-center max-w-6xl gap-8 mx-auto px-6 xl:px-0">
             <HeroBackground />
-            <div className="flex flex-col gap-8 w-full items-center justify-center">
-                <Card className="w-full flex flex-col gap-4">
+            <div className="flex flex-col w-full items-center justify-center gap-64">
+                <Card className="w-full max-w-6xl flex flex-col gap-4 min-h-[800px] xl:w-[1152px]">
                     <div className="mb-6">
                         <h1 className="text-3xl font-semibold tracking-tight mb-2">
                             Top Rated Domains
@@ -517,22 +654,142 @@ export default function TopDomains() {
                         </p>
                     </div>
 
-                    <div className="flex gap-2">
-                        <Input
-                            type="text"
-                            placeholder="Search for a domain or idea..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="flex-1"
-                        />
+                    <Input
+                        type="text"
+                        placeholder="Search for a domain or idea..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full"
+                    />
+
+                    {/* Filter Buttons */}
+                    <div className="flex flex-row gap-4">
+                        {/* Status Filter */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-medium text-gray-700">
+                                Status
+                            </span>
+                            <Button
+                                variant={
+                                    statusFilter === 'available'
+                                        ? 'default'
+                                        : 'outline'
+                                }
+                                size="xs"
+                                onClick={() => {
+                                    setStatusFilter(
+                                        statusFilter === 'available'
+                                            ? null
+                                            : 'available'
+                                    );
+                                    setPage(1);
+                                }}
+                            >
+                                Available
+                            </Button>
+                        </div>
+
+                        {/* Domain Length Filter */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-medium text-gray-700">
+                                Domain Length
+                            </span>
+                            <Button
+                                variant={
+                                    domainLengthFilter === '<5'
+                                        ? 'default'
+                                        : 'outline'
+                                }
+                                size="xs"
+                                onClick={() => {
+                                    setDomainLengthFilter(
+                                        domainLengthFilter === '<5'
+                                            ? null
+                                            : '<5'
+                                    );
+                                    setPage(1);
+                                }}
+                            >
+                                &lt;5 chars
+                            </Button>
+                            <Button
+                                variant={
+                                    domainLengthFilter === '<10'
+                                        ? 'default'
+                                        : 'outline'
+                                }
+                                size="xs"
+                                onClick={() => {
+                                    setDomainLengthFilter(
+                                        domainLengthFilter === '<10'
+                                            ? null
+                                            : '<10'
+                                    );
+                                    setPage(1);
+                                }}
+                            >
+                                &lt;10 chars
+                            </Button>
+                        </div>
+
+                        {/* TLD Filter */}
+                        {uniqueTlds.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-medium text-gray-700">
+                                    TLD
+                                </span>
+                                {tldFilter.size > 0 && (
+                                    <Button
+                                        variant="outline"
+                                        size="xs"
+                                        onClick={() => {
+                                            setTldFilter(new Set());
+                                            setPage(1);
+                                        }}
+                                    >
+                                        Clear ({tldFilter.size})
+                                    </Button>
+                                )}
+                                {uniqueTlds.slice(0, 10).map((tld) => (
+                                    <Button
+                                        key={tld}
+                                        variant={
+                                            tldFilter.has(tld)
+                                                ? 'default'
+                                                : 'outline'
+                                        }
+                                        size="xs"
+                                        onClick={() => {
+                                            setTldFilter((prev) => {
+                                                const next = new Set(prev);
+                                                if (next.has(tld)) {
+                                                    next.delete(tld);
+                                                } else {
+                                                    next.add(tld);
+                                                }
+                                                return next;
+                                            });
+                                            setPage(1);
+                                        }}
+                                    >
+                                        .{tld}
+                                    </Button>
+                                ))}
+                                {uniqueTlds.length > 10 && (
+                                    <span className="text-xs text-gray-500">
+                                        +{uniqueTlds.length - 10} more
+                                    </span>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     {showLoadingIndicator ? (
-                        <div className="text-center py-8">
+                        <div className="text-center py-8 flex-1 min-h-[500px] flex items-center justify-center">
                             <p className="text-gray-600">Loading domains...</p>
                         </div>
                     ) : domains.length === 0 ? (
-                        <div className="text-center py-8">
+                        <div className="text-center py-8 flex-1 min-h-[500px] flex flex-col items-center justify-center">
                             <p className="text-gray-600 mb-4">
                                 {debouncedSearchQuery.trim()
                                     ? `No domains found. You can generate domains for this search.`
@@ -551,75 +808,82 @@ export default function TopDomains() {
                             >
                                 {debouncedSearchQuery.trim()
                                     ? 'Generate Domains'
-                                    : 'Go to Main Page'}
+                                    : 'Generate Domains'}
                             </Button>
                         </div>
                     ) : (
-                        <div className="w-full">
-                            <Table>
-                                <TableHeader>
-                                    {table
-                                        .getHeaderGroups()
-                                        .map((headerGroup) => (
-                                            <TableRow key={headerGroup.id}>
-                                                {headerGroup.headers.map(
-                                                    (header) => (
-                                                        <TableHead
-                                                            key={header.id}
-                                                        >
-                                                            {header.isPlaceholder
-                                                                ? null
-                                                                : flexRender(
-                                                                      header
-                                                                          .column
-                                                                          .columnDef
-                                                                          .header,
-                                                                      header.getContext()
-                                                                  )}
-                                                        </TableHead>
-                                                    )
-                                                )}
+                        <div className="w-full flex-1 min-h-[500px] flex flex-col">
+                            <div className="flex-1 overflow-auto w-full">
+                                <Table className="w-full">
+                                    <TableHeader>
+                                        {table
+                                            .getHeaderGroups()
+                                            .map((headerGroup) => (
+                                                <TableRow key={headerGroup.id}>
+                                                    {headerGroup.headers.map(
+                                                        (header) => (
+                                                            <TableHead
+                                                                key={header.id}
+                                                            >
+                                                                {header.isPlaceholder
+                                                                    ? null
+                                                                    : flexRender(
+                                                                          header
+                                                                              .column
+                                                                              .columnDef
+                                                                              .header,
+                                                                          header.getContext()
+                                                                      )}
+                                                            </TableHead>
+                                                        )
+                                                    )}
+                                                </TableRow>
+                                            ))}
+                                    </TableHeader>
+                                    <TableBody>
+                                        {table.getRowModel().rows?.length ? (
+                                            table
+                                                .getRowModel()
+                                                .rows.map((row) => (
+                                                    <TableRow
+                                                        key={row.id}
+                                                        data-state={
+                                                            row.getIsSelected() &&
+                                                            'selected'
+                                                        }
+                                                    >
+                                                        {row
+                                                            .getVisibleCells()
+                                                            .map((cell) => (
+                                                                <TableCell
+                                                                    key={
+                                                                        cell.id
+                                                                    }
+                                                                >
+                                                                    {flexRender(
+                                                                        cell
+                                                                            .column
+                                                                            .columnDef
+                                                                            .cell,
+                                                                        cell.getContext()
+                                                                    )}
+                                                                </TableCell>
+                                                            ))}
+                                                    </TableRow>
+                                                ))
+                                        ) : (
+                                            <TableRow>
+                                                <TableCell
+                                                    colSpan={columns.length}
+                                                    className="h-24 text-center"
+                                                >
+                                                    No results.
+                                                </TableCell>
                                             </TableRow>
-                                        ))}
-                                </TableHeader>
-                                <TableBody>
-                                    {table.getRowModel().rows?.length ? (
-                                        table.getRowModel().rows.map((row) => (
-                                            <TableRow
-                                                key={row.id}
-                                                data-state={
-                                                    row.getIsSelected() &&
-                                                    'selected'
-                                                }
-                                            >
-                                                {row
-                                                    .getVisibleCells()
-                                                    .map((cell) => (
-                                                        <TableCell
-                                                            key={cell.id}
-                                                        >
-                                                            {flexRender(
-                                                                cell.column
-                                                                    .columnDef
-                                                                    .cell,
-                                                                cell.getContext()
-                                                            )}
-                                                        </TableCell>
-                                                    ))}
-                                            </TableRow>
-                                        ))
-                                    ) : (
-                                        <TableRow>
-                                            <TableCell
-                                                colSpan={columns.length}
-                                                className="h-24 text-center"
-                                            >
-                                                No results.
-                                            </TableCell>
-                                        </TableRow>
-                                    )}
-                                </TableBody>
-                            </Table>
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
 
                             {totalPages > 1 && (
                                 <div className="flex items-center justify-between w-full">
@@ -652,6 +916,32 @@ export default function TopDomains() {
                         </div>
                     )}
                 </Card>
+
+                <div
+                    id="get-started"
+                    className="w-full flex align-middle justify-center gap-12 px-6 2xl:px-0 z-10 items-center"
+                >
+                    <div className="w-full flex flex-col gap-4 text-center">
+                        <h2 className="text-3xl font-semibold tracking-tight flex flex-col">
+                            Did not find a good match for you?
+                        </h2>
+                        <p className="font-light text-balance text-lg">
+                            Get at least 5 avaialbe domains specificlly tailored
+                            for your idea and vision.
+                        </p>
+                        <Link
+                            href="/"
+                            className={cn(
+                                'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+                                'bg-primary text-primary-foreground shadow hover:bg-primary/90',
+                                'h-9 px-4 py-2',
+                                'w-fit mx-auto mt-6'
+                            )}
+                        >
+                            Generate Domains
+                        </Link>
+                    </div>
+                </div>
             </div>
         </main>
     );

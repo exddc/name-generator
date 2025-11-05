@@ -83,6 +83,7 @@ class Domain(DomainSuggestion):
     total_ratings: int = Field(description="The total number of ratings for the domain")
     model: str = Field(description="The model used to generate the domain suggestion")
     prompt: str = Field(description="The prompt used to generate the domain suggestion")
+    is_favorite: bool | None = Field(description="Whether the domain is favorited by the user")
 
 class ResponseDomain(BaseModel):
     suggestions: List[Domain]
