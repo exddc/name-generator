@@ -16,8 +16,10 @@ from api.config import get_settings
 from api.models.api_models import (
     DomainStatus,
     DomainSuggestion,
+    Domain as DomainModel,
     RequestDomainSuggestion,
     ResponseDomainSuggestion,
+    ResponseDomain,
     ResponseDomainStatus,
     RequestRating,
     RatingResponse,
@@ -32,7 +34,9 @@ from api.utils import (
     MetricsTracker,
     create_domain_rating,
 )
-from api.models.db_models import Rating as RatingDB
+from api.models.db_models import Rating as RatingDB, Domain as DomainDB
+from tortoise import connections
+from tortoise.expressions import Q
 
 
 settings = get_settings()
@@ -98,6 +102,166 @@ async def create_rating(
             status_code=500,
             detail=f"Failed to create rating: {str(e)}"
         )
+
+
+@router.get("/top")
+async def get_top_domains(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Number of items per page"),
+    sort_by: str = Query("rating", description="Sort by: rating, domain, tld, status, last_checked, created_at"),
+    order: str = Query("desc", description="Order: asc or desc"),
+    status: str | None = Query("available", description="Filter by status: available, registered, unknown, or null for all"),
+    min_rating: int | None = Query(1, description="Minimum rating (upvotes - downvotes). Default 1 for positive ratings."),
+    search: str | None = Query(None, description="Search domains by name (partial match)"),
+) -> ResponseDomain:
+    """
+    Get paginated highest rated domains.
+    
+    Returns domains ordered by rating (upvotes - downvotes) by default.
+    Supports sorting by rating, domain, tld, status, last_checked, and created_at.
+    Default filters: status=available, min_rating=1 (positive ratings only).
+    """
+    if sort_by not in ["rating", "domain", "tld", "status", "last_checked", "created_at"]:
+        raise HTTPException(status_code=400, detail=f"Invalid sort_by: {sort_by}")
+    
+    if order not in ["asc", "desc"]:
+        raise HTTPException(status_code=400, detail=f"Invalid order: {order}")
+    
+    if status and status not in ["available", "registered", "unknown"]:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+    
+    offset = (page - 1) * page_size
+    
+    if sort_by == "rating":
+        conn = connections.get("default")
+        order_sql = "DESC" if order == "desc" else "ASC"
+        
+        where_parts = ["(upvotes + downvotes) > 0"]
+        
+        if status:
+            where_parts.append(f"status = '{status}'")
+        
+        if min_rating is not None:
+            where_parts.append(f"(upvotes - downvotes) >= {min_rating}")
+        
+        if search:
+            search_escaped = (
+                search.replace('\\', '\\\\')
+                .replace("'", "''")
+                .replace('%', '\\%')
+                .replace('_', '\\_')
+            )
+            where_parts.append(f"(domain ILIKE '%{search_escaped}%' OR domain_name ILIKE '%{search_escaped}%')")
+        
+        where_clause = " AND ".join(where_parts)
+        
+        count_query = f"SELECT COUNT(*) FROM domains WHERE {where_clause}"
+        count_result = await conn.execute_query(count_query)
+        total = count_result[1][0][0] if count_result[1] and len(count_result[1]) > 0 else 0
+        
+        data_query = f"""
+            SELECT d.domain, d.domain_name, d.tld, d.status, d.last_checked, d.created_at, d.updated_at, 
+                   d.upvotes, d.downvotes, (d.upvotes - d.downvotes) as rating_score,
+                   d.suggestion_id, s.model, s.prompt
+            FROM domains d
+            LEFT JOIN suggestions s ON d.suggestion_id = s.id
+            WHERE {where_clause}
+            ORDER BY rating_score {order_sql}
+            LIMIT {page_size} OFFSET {offset}
+        """
+        result = await conn.execute_query(data_query)
+        
+        suggestions = []
+        if result[1]:
+            for row in result[1]:
+                domain_val, domain_name, tld, status_val, last_checked, created_at, updated_at, upvotes, downvotes, rating_score, suggestion_id, model, prompt = row
+                total_ratings = upvotes + downvotes
+                domain_obj = DomainModel(
+                    domain=domain_val,
+                    tld=tld,
+                    status=DomainStatus(status_val),
+                    rating=rating_score,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                    total_ratings=total_ratings,
+                    model=model or "unknown",
+                    prompt=prompt or "unknown",
+                )
+                suggestions.append(domain_obj)
+    else:
+        query = DomainDB.filter(
+            Q(upvotes__gt=0) | Q(downvotes__gt=0)
+        )
+        
+        if status:
+            query = query.filter(status=DomainStatus(status))
+        
+        if search:
+            query = query.filter(
+                Q(domain__icontains=search) | Q(domain_name__icontains=search)
+            )
+        
+        if sort_by == "domain":
+            if order == "desc":
+                query = query.order_by("-domain")
+            else:
+                query = query.order_by("domain")
+        elif sort_by == "tld":
+            if order == "desc":
+                query = query.order_by("-tld")
+            else:
+                query = query.order_by("tld")
+        elif sort_by == "status":
+            if order == "desc":
+                query = query.order_by("-status")
+            else:
+                query = query.order_by("status")
+        elif sort_by == "last_checked":
+            if order == "desc":
+                query = query.order_by("-last_checked")
+            else:
+                query = query.order_by("last_checked")
+        elif sort_by == "created_at":
+            if order == "desc":
+                query = query.order_by("-created_at")
+            else:
+                query = query.order_by("created_at")
+        
+        total = await query.count()
+        
+        domains = await query.offset(offset).limit(page_size).prefetch_related("suggestion").all()
+        
+        suggestions = []
+        for domain in domains:
+            rating = domain.upvotes - domain.downvotes
+            
+            if min_rating is not None and rating < min_rating:
+                continue
+            
+            total_ratings = domain.upvotes + domain.downvotes
+            suggestion_obj = domain.suggestion
+            
+            domain_obj = DomainModel(
+                domain=domain.domain,
+                tld=domain.tld,
+                status=domain.status,
+                rating=rating,
+                created_at=domain.created_at,
+                updated_at=domain.updated_at,
+                total_ratings=total_ratings,
+                model=suggestion_obj.model if suggestion_obj else "unknown",
+                prompt=suggestion_obj.prompt if suggestion_obj else "unknown",
+            )
+            suggestions.append(domain_obj)
+        
+        if min_rating is not None:
+            all_domains = await query.all()
+            total = sum(1 for d in all_domains if (d.upvotes - d.downvotes) >= min_rating)
+    
+    return ResponseDomain(
+        suggestions=suggestions,
+        total=total,
+    )
 
 
 @router.get("/rating")

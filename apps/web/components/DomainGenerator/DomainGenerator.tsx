@@ -17,13 +17,15 @@ const DOMAIN_SUGGESTION_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/stre
 // Props
 type DomainGeneratorProps = {
     onDomainsStatusChange?: (hasDomains: boolean) => void;
+    initialSearch?: string;
 };
 
 export default function DomainGenerator({
     onDomainsStatusChange,
+    initialSearch,
 }: DomainGeneratorProps) {
     const { data: session } = useSession();
-    const [userInput, setUserInput] = useState('');
+    const [userInput, setUserInput] = useState(initialSearch || '');
     const [domains, setDomains] = useState<Domain[]>([]);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -35,6 +37,13 @@ export default function DomainGenerator({
     const [unknownDomains, setUnknownDomains] = useState<Domain[]>([]);
 
     const abortControllerRef = useRef<AbortController | null>(null);
+
+    // Update userInput when initialSearch changes
+    useEffect(() => {
+        if (initialSearch) {
+            setUserInput(initialSearch);
+        }
+    }, [initialSearch]);
 
     const applySuggestionMessage = (message: StreamMessage) => {
         setDomains((prev) => {

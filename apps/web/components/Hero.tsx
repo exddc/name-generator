@@ -7,7 +7,11 @@ import { cn } from '@/lib/utils';
 // Components
 import { DomainGenerator } from '@/components/DomainGenerator';
 
-export default function Hero() {
+type HeroProps = {
+    initialSearch?: string;
+};
+
+export default function Hero({ initialSearch }: HeroProps) {
     const [hasDomains, setHasDomains] = useState(false);
 
     return (
@@ -33,7 +37,10 @@ export default function Hero() {
                     fits your brand and vision
                 </p>
             </div>
-            <DomainGenerator onDomainsStatusChange={setHasDomains} />
+            <DomainGenerator
+                onDomainsStatusChange={setHasDomains}
+                initialSearch={initialSearch}
+            />
         </div>
     );
 }

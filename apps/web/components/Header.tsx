@@ -60,9 +60,7 @@ export default function Header() {
                                     asChild
                                     className={navigationMenuTriggerStyle()}
                                 >
-                                    <Link href="/top-domains">
-                                        Top Rated Domains
-                                    </Link>
+                                    <Link href="/top-domains">Top Domains</Link>
                                 </NavigationMenuLink>
                             </NavigationMenuItem>
                             <NavigationMenuItem>

@@ -16,12 +16,18 @@ import Link from 'next/link';
 import Hero from '@/components/Hero';
 import { DomainRow } from '@/components/DomainGenerator';
 
-export default function Home() {
+type HomeProps = {
+    searchParams: { search?: string };
+};
+
+export default function Home({ searchParams }: HomeProps) {
+    const searchQuery = searchParams?.search || '';
+
     return (
         <main className="flex flex-col items-center justify-center max-w-6xl gap-64 mx-auto px-6 xl:px-0">
             <HeroBackground />
 
-            <Hero />
+            <Hero initialSearch={searchQuery} />
 
             <div
                 id="get-many-suggestions"

@@ -43,7 +43,6 @@ class RequestDomainAction(BaseModel):
     user_id: str | None = None
     action: DomainAction
 
-
 class RequestRating(BaseModel):
     domain: str
     user_id: str | None = None
@@ -57,13 +56,11 @@ class RequestRating(BaseModel):
             raise ValueError('Vote must be 1 (upvote) or -1 (downvote)')
         return v
 
-
 class RatingResponse(BaseModel):
     id: int
     domain: str
     vote: int
     created_at: datetime.datetime
-
 
 class ResponseRatings(BaseModel):
     ratings: List[RatingResponse]
@@ -76,10 +73,17 @@ class RequestFavorite(BaseModel):
     user_id: str
     action: str = Field(pattern="^(fav|unfav)$", description="'fav' to favorite, 'unfav' to unfavorite")
 
-
-
 class ResponseFavorites(BaseModel):
     favorites: List[DomainSuggestion]
     total: int
     page: int
     page_size: int
+
+class Domain(DomainSuggestion):
+    total_ratings: int = Field(description="The total number of ratings for the domain")
+    model: str = Field(description="The model used to generate the domain suggestion")
+    prompt: str = Field(description="The prompt used to generate the domain suggestion")
+
+class ResponseDomain(BaseModel):
+    suggestions: List[Domain]
+    total: int

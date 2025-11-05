@@ -5,6 +5,9 @@ export interface Domain {
     rating?: number;
     created_at: string;
     updated_at: string;
+    total_ratings?: number;
+    model?: string;
+    prompt?: string;
 }
 
 export enum DomainStatus {

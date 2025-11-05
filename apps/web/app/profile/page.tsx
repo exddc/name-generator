@@ -131,8 +131,8 @@ export default function Profile() {
     return (
         <main className="flex flex-col items-center justify-center max-w-6xl gap-8 mx-auto px-6 xl:px-0">
             <HeroBackground />
-            <div className="flex flex-col gap-8 w-full">
-                <Card className="w-full max-w-md flex flex-col">
+            <div className="flex flex-col gap-8 w-full items-center justify-center">
+                <Card className="w-full max-w-md flex flex-col mx-auto">
                     <div className="mb-6">
                         <h1 className="text-3xl font-semibold tracking-tight mb-2">
                             Profile
