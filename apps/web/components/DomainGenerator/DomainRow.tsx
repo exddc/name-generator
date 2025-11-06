@@ -9,7 +9,7 @@ import {
     RatingRequestBody,
     FavoriteRequestBody,
 } from '@/lib/types';
-import { cn, getAnonRandomId } from '@/lib/utils';
+import { cn, getAnonRandomId, getDomainRegistrarUrl } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 
 // Components
@@ -428,9 +428,14 @@ export default function DomainRow({ domain }: DomainRowProps) {
                             }
                         />
                     </button>
-                    <button className="hover:cursor-pointer hover:scale-110 transition-all duration-300">
+                    <Link
+                        className="hover:cursor-pointer hover:scale-110 transition-all duration-300"
+                        href={getDomainRegistrarUrl(domain.domain)}
+                        target="_blank"
+                        rel="noreferrer"
+                    >
                         <ShoppingCart className="size-4" strokeWidth={1.75} />
-                    </button>
+                    </Link>
                     <button
                         className="hover:cursor-pointer hover:scale-110 transition-all duration-300"
                         onClick={() => setOpen(!open)}
@@ -577,12 +582,19 @@ export default function DomainRow({ domain }: DomainRowProps) {
                                                     }
                                                 />
                                             </button>
-                                            <button className="hover:cursor-pointer hover:scale-110 transition-all duration-300">
+                                            <Link
+                                                className="hover:cursor-pointer hover:scale-110 transition-all duration-300"
+                                                href={getDomainRegistrarUrl(
+                                                    variant.domain
+                                                )}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                            >
                                                 <ShoppingCart
                                                     className="size-4"
                                                     strokeWidth={1.75}
                                                 />
-                                            </button>
+                                            </Link>
                                         </div>
                                     </div>
                                 ))}

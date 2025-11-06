@@ -132,64 +132,70 @@ export default function Profile() {
         <main className="flex flex-col items-center justify-center max-w-6xl gap-8 mx-auto px-6 xl:px-0">
             <HeroBackground />
             <div className="flex flex-col gap-8 w-full items-center justify-center">
-                <Card className="w-full max-w-md flex flex-col mx-auto">
-                    <div className="mb-6">
-                        <h1 className="text-3xl font-semibold tracking-tight mb-2">
-                            Profile
-                        </h1>
-                        <p className="text-gray-600">
-                            Manage your account settings
-                        </p>
-                    </div>
-
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium mb-2">
-                                Email
-                            </label>
-                            <div className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm items-center">
-                                {session.user.email}
-                            </div>
+                <div className="flex flex-row gap-8 w-full">
+                    <Card className="w-full max-w-md flex flex-col mx-auto">
+                        <div className="mb-6">
+                            <h1 className="text-3xl font-semibold tracking-tight mb-2">
+                                Profile
+                            </h1>
+                            <p className="text-gray-600">
+                                Manage your account information
+                            </p>
                         </div>
 
-                        <div>
-                            <label className="block text-sm font-medium mb-2">
-                                Name
-                            </label>
-                            <div className="flex gap-2">
-                                <Input
-                                    type="text"
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    onBlur={handleUpdateName}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                            e.currentTarget.blur();
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-2">
+                                    Email
+                                </label>
+                                <div className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm items-center">
+                                    {session.user.email}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium mb-2">
+                                    Name
+                                </label>
+                                <div className="flex gap-2">
+                                    <Input
+                                        type="text"
+                                        value={name}
+                                        onChange={(e) =>
+                                            setName(e.target.value)
                                         }
-                                    }}
-                                    disabled={isSaving}
-                                    className="flex-1"
-                                />
+                                        onBlur={handleUpdateName}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.currentTarget.blur();
+                                            }
+                                        }}
+                                        disabled={isSaving}
+                                        className="flex-1"
+                                    />
+                                </div>
                             </div>
-                        </div>
 
-                        <div className="pt-4 border-t flex flex-row items-center justify-between">
                             <Button
                                 variant="destructive"
                                 onClick={handleSignOut}
                             >
                                 Sign Out
                             </Button>
-
-                            <Link
-                                href="/"
-                                className="text-sm text-gray-600 hover:text-gray-900"
-                            >
-                                ← Back to home
-                            </Link>
                         </div>
-                    </div>
-                </Card>
+                    </Card>
+
+                    <Card className="w-full max-w-md flex flex-col mx-auto">
+                        <div className="mb-6">
+                            <h2 className="text-3xl font-semibold tracking-tight mb-2">
+                                Settings
+                            </h2>
+                            <p className="text-gray-600">
+                                Manage your settings
+                            </p>
+                        </div>
+                    </Card>
+                </div>
 
                 <Card className="w-full flex flex-col">
                     <div className="mb-6">

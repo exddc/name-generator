@@ -18,7 +18,7 @@ import {
     RatingRequestBody,
     FavoriteRequestBody,
 } from '@/lib/types';
-import { cn, getAnonRandomId } from '@/lib/utils';
+import { cn, getAnonRandomId, getDomainRegistrarUrl } from '@/lib/utils';
 import {
     ArrowUpDown,
     ArrowUp,
@@ -497,12 +497,17 @@ export default function TopDomains() {
                                     />
                                 </button>
                             )}
-                            <button className="hover:cursor-pointer hover:scale-110 transition-all duration-300">
+                            <Link
+                                className="hover:cursor-pointer hover:scale-110 transition-all duration-300"
+                                href={getDomainRegistrarUrl(domainName)}
+                                target="_blank"
+                                rel="noreferrer"
+                            >
                                 <ShoppingCart
                                     className="size-4"
                                     strokeWidth={1.75}
                                 />
-                            </button>
+                            </Link>
                         </div>
                     );
                 },
