@@ -30,6 +30,15 @@ export default function DomainGenerator({
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [textAreaRows, setTextAreaRows] = useState(1);
+    const [loadingStartTime, setLoadingStartTime] = useState<number | null>(
+        null
+    );
+    const [hasReceivedFirstResponse, setHasReceivedFirstResponse] =
+        useState(false);
+    const [firstResponseTime, setFirstResponseTime] = useState<number | null>(
+        null
+    );
+    const [loadingText, setLoadingText] = useState('Generating domains...');
 
     // Domain Filters
     const [freeDomains, setFreeDomains] = useState<Domain[]>([]);
@@ -48,6 +57,7 @@ export default function DomainGenerator({
     const applySuggestionMessage = (message: StreamMessage) => {
         setDomains((prev) => {
             const next = [...prev];
+            let hasNewDomains = false;
 
             const upsert = (items?: Domain[]) => {
                 if (!items?.length) return;
@@ -60,6 +70,7 @@ export default function DomainGenerator({
                         next[existingIndex] = item;
                     } else {
                         next.push(item);
+                        hasNewDomains = true;
                     }
                 }
             };
@@ -67,6 +78,11 @@ export default function DomainGenerator({
             upsert(message.new);
             upsert(message.updates);
             upsert(message.suggestions);
+
+            if (hasNewDomains && !hasReceivedFirstResponse) {
+                setHasReceivedFirstResponse(true);
+                setFirstResponseTime(Date.now());
+            }
 
             return next;
         });
@@ -175,7 +191,6 @@ export default function DomainGenerator({
                             isStreamComplete = true;
                             break;
                         default:
-                            // ignore other events (start, heartbeat, etc.)
                             break;
                     }
 
@@ -201,6 +216,8 @@ export default function DomainGenerator({
             }
         } finally {
             setIsLoading(false);
+            setLoadingStartTime(null);
+            setFirstResponseTime(null);
         }
     };
 
@@ -213,6 +230,10 @@ export default function DomainGenerator({
 
         setIsLoading(true);
         setErrorMsg(null);
+        setLoadingStartTime(Date.now());
+        setHasReceivedFirstResponse(false);
+        setFirstResponseTime(null);
+        setLoadingText('Generating domains...');
         await fetchSuggestions(controller);
     };
 
@@ -223,8 +244,49 @@ export default function DomainGenerator({
         abortControllerRef.current = controller;
         setIsLoading(true);
         setErrorMsg(null);
+        setLoadingStartTime(Date.now());
+        setHasReceivedFirstResponse(false);
+        setFirstResponseTime(null);
+        setLoadingText('Generating domains...');
         await fetchSuggestions(controller);
     };
+
+    useEffect(() => {
+        if (!isLoading || loadingStartTime === null) {
+            return;
+        }
+
+        const updateLoadingText = () => {
+            const elapsed = Date.now() - loadingStartTime;
+
+            if (elapsed >= 20000) {
+                setLoadingText('This is a very tricky search...');
+            } else if (
+                hasReceivedFirstResponse &&
+                firstResponseTime !== null &&
+                Date.now() - firstResponseTime >= 4000
+            ) {
+                setLoadingText('Validating more domains...');
+            } else if (hasReceivedFirstResponse) {
+                setLoadingText('Generating more domains...');
+            } else if (elapsed >= 3000) {
+                setLoadingText('Validating domains...');
+            } else {
+                setLoadingText('Generating domains...');
+            }
+        };
+
+        updateLoadingText();
+
+        const interval = setInterval(updateLoadingText, 100);
+
+        return () => clearInterval(interval);
+    }, [
+        isLoading,
+        loadingStartTime,
+        hasReceivedFirstResponse,
+        firstResponseTime,
+    ]);
 
     useEffect(() => {
         setFreeDomains(
@@ -304,7 +366,7 @@ export default function DomainGenerator({
                         className="w-full overflow-hidden"
                     >
                         <span className="flex items-center justify-center text-xs py-1 animate-pulse">
-                            Generating domains...
+                            {loadingText}
                         </span>
                     </motion.div>
                 ) : !isLoading && domains.length > 0 ? (
