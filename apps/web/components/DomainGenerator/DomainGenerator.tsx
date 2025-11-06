@@ -7,7 +7,7 @@ import { Domain, DomainStatus, StreamMessage } from '@/lib/types';
 import { useSession } from '@/lib/auth-client';
 
 // Components
-import { DomainRow } from '@/components/DomainGenerator';
+import DomainSection from './DomainSection';
 import { SendHorizonal, Square } from 'lucide-react';
 import { Button } from '../ui/button';
 
@@ -46,6 +46,11 @@ export default function DomainGenerator({
     const [unknownDomains, setUnknownDomains] = useState<Domain[]>([]);
 
     const abortControllerRef = useRef<AbortController | null>(null);
+
+    // Collapsible state for sections
+    const [isFreeOpen, setIsFreeOpen] = useState(true);
+    const [isRegisteredOpen, setIsRegisteredOpen] = useState(false);
+    const [isUnknownOpen, setIsUnknownOpen] = useState(false);
 
     // Update userInput when initialSearch changes
     useEffect(() => {
@@ -301,13 +306,23 @@ export default function DomainGenerator({
     }, [domains]);
 
     useEffect(() => {
+        if (
+            freeDomains.length === 0 &&
+            registeredDomains.length === 0 &&
+            unknownDomains.length > 0
+        ) {
+            setIsUnknownOpen(true);
+        }
+    }, [freeDomains.length, registeredDomains.length, unknownDomains.length]);
+
+    useEffect(() => {
         onDomainsStatusChange?.(domains.length > 0);
     }, [domains, onDomainsStatusChange]);
 
     return (
         <div
             id="domain-generator-form"
-            className="w-full max-w-2xl space-y-4 mt-6 bg-white p-5 rounded-2xl backdrop-blur-lg bg-opacity-40 border border-neutral-200 transition-all duration-500"
+            className="w-full max-w-2xl space-y-4 mt-6 bg-white p-5 rounded-2xl backdrop-blur-lg bg-opacity-40 border border-neutral-200 transition-all duration-300"
         >
             <div className="relative overflow-hidden rounded-xl focus-within:ring-1 focus-within:ring-neutral-300">
                 <form className="flex border border-[#D9D9D9] px-4 py-3 text-base justify-between rounded-xl bg-white">
@@ -355,14 +370,14 @@ export default function DomainGenerator({
                 </form>
             </div>
 
-            <AnimatePresence>
+            <AnimatePresence mode="wait">
                 {isLoading ? (
                     <motion.div
                         key="domain-loading-indicator"
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 'auto', opacity: 0 }}
-                        transition={{ duration: 0.2, ease: 'easeInOut' }}
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
                         className="w-full overflow-hidden"
                     >
                         <span className="flex items-center justify-center text-xs py-1 animate-pulse">
@@ -372,15 +387,11 @@ export default function DomainGenerator({
                 ) : !isLoading && domains.length > 0 ? (
                     <motion.div
                         key="generate-more-domains"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{
-                            delay: 0.2,
-                            duration: 0.2,
-                            ease: 'easeInOut',
-                        }}
-                        className="w-full flex items-center justify-center"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        className="w-full overflow-hidden flex items-center justify-center"
                     >
                         <Button onClick={handleGenerateMore} size="sm">
                             Generate more Suggestions
@@ -397,60 +408,27 @@ export default function DomainGenerator({
 
             {domains.length > 0 && (
                 <div className="pt-3 space-y-4">
-                    {freeDomains.length > 0 && (
-                        <details open>
-                            <summary className="cursor-pointer text-sm font-semibold mb-2 ml-2">
-                                Available Domains ({freeDomains?.length})
-                            </summary>
-                            <div className="mt-2 space-y-2">
-                                {freeDomains.map((domain) => (
-                                    <DomainRow
-                                        domain={domain}
-                                        key={domain.domain + '-free-domain'}
-                                    />
-                                ))}
-                            </div>
-                        </details>
-                    )}
-
-                    {registeredDomains.length > 0 && (
-                        <details>
-                            <summary className="cursor-pointer text-sm font-semibold mb-2 ml-2">
-                                Registered Domains ({registeredDomains?.length})
-                            </summary>
-                            <div className="mt-2 space-y-2">
-                                {registeredDomains.map((domain) => (
-                                    <DomainRow
-                                        domain={domain}
-                                        key={
-                                            domain.domain + '-registered-domain'
-                                        }
-                                    />
-                                ))}
-                            </div>
-                        </details>
-                    )}
-
-                    {unknownDomains.length > 0 && (
-                        <details
-                            open={
-                                freeDomains.length == 0 &&
-                                registeredDomains.length == 0
-                            }
-                        >
-                            <summary className="cursor-pointer text-sm font-semibold mb-2 ml-2">
-                                Other ({unknownDomains?.length})
-                            </summary>
-                            <div className="mt-2 space-y-2">
-                                {unknownDomains.map((domain) => (
-                                    <DomainRow
-                                        domain={domain}
-                                        key={domain.domain + '-unknown-domain'}
-                                    />
-                                ))}
-                            </div>
-                        </details>
-                    )}
+                    <DomainSection
+                        title={`Available Domains (${freeDomains.length})`}
+                        domains={freeDomains}
+                        isOpen={isFreeOpen}
+                        onToggle={() => setIsFreeOpen((v) => !v)}
+                        itemKeySuffix="free"
+                    />
+                    <DomainSection
+                        title={`Registered Domains (${registeredDomains.length})`}
+                        domains={registeredDomains}
+                        isOpen={isRegisteredOpen}
+                        onToggle={() => setIsRegisteredOpen((v) => !v)}
+                        itemKeySuffix="registered"
+                    />
+                    <DomainSection
+                        title={`Other (${unknownDomains.length})`}
+                        domains={unknownDomains}
+                        isOpen={isUnknownOpen}
+                        onToggle={() => setIsUnknownOpen((v) => !v)}
+                        itemKeySuffix="unknown"
+                    />
                 </div>
             )}
         </div>

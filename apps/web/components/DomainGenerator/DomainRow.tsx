@@ -2,6 +2,7 @@
 
 // Libraries
 import React, { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
     Domain,
     DomainStatusColor,
@@ -29,7 +30,12 @@ const RATING_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
 const RATINGS_GET_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
 const FAVORITE_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/user/favorite`;
 
-export default function DomainRow({ domain }: { domain: Domain }) {
+// Props
+type DomainRowProps = {
+    domain: Domain;
+};
+
+export default function DomainRow({ domain }: DomainRowProps) {
     const { data: session } = useSession();
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -439,153 +445,186 @@ export default function DomainRow({ domain }: { domain: Domain }) {
                     </button>
                 </div>
             </div>
-            <div
-                className={cn(
-                    'overflow-hidden transition-all duration-300 ease-in-out',
-                    open ? 'h-fit' : 'max-h-0'
-                )}
-            >
-                <div className="border-t border-neutral-300 pt-4 mt-2 grid grid-cols-1 gap-4">
-                    {variants.slice(0, displayCount).map((variant, index) => (
-                        <div
-                            key={index}
-                            className="flex justify-between items-center pr-8"
-                        >
-                            <div className="flex flex-row items-center justify-start gap-2">
-                                <Link
-                                    href={'https://' + variant.domain}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="font-normal"
-                                >
-                                    {variant.domain}
-                                </Link>
-                                <span
-                                    className={cn(
-                                        DomainStatusColor[variant.status],
-                                        'text-neutral-800 font-semibold text-[0.4rem] border px-1 flex items-center h-[14px] rounded-xl'
-                                    )}
-                                >
-                                    {variant.status}
+            <AnimatePresence initial={false}>
+                {open && (
+                    <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        style={{ overflow: 'hidden' }}
+                    >
+                        <div className="border-t border-neutral-300 pt-4 mt-2 grid grid-cols-1 gap-4">
+                            {variants
+                                .slice(0, displayCount)
+                                .map((variant, index) => (
+                                    <div
+                                        key={index}
+                                        className="flex justify-between items-center pr-8"
+                                    >
+                                        <div className="flex flex-row items-center justify-start gap-2">
+                                            <Link
+                                                href={
+                                                    'https://' + variant.domain
+                                                }
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="font-normal"
+                                            >
+                                                {variant.domain}
+                                            </Link>
+                                            <span
+                                                className={cn(
+                                                    DomainStatusColor[
+                                                        variant.status
+                                                    ],
+                                                    'text-neutral-800 font-semibold text-[0.4rem] border px-1 flex items-center h-[14px] rounded-xl'
+                                                )}
+                                            >
+                                                {variant.status}
+                                            </span>
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    className={cn(
+                                                        'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                                        getVoteForDomain(
+                                                            variant.domain
+                                                        ) === 1 &&
+                                                            'text-green-600'
+                                                    )}
+                                                    onClick={() =>
+                                                        handleVote(
+                                                            variant.domain,
+                                                            1
+                                                        )
+                                                    }
+                                                >
+                                                    <ThumbsUp
+                                                        className={cn(
+                                                            'size-3',
+                                                            getVoteForDomain(
+                                                                variant.domain
+                                                            ) === 1 &&
+                                                                'text-green-600'
+                                                        )}
+                                                        strokeWidth={1.75}
+                                                    />
+                                                </button>
+                                                <button
+                                                    className={cn(
+                                                        'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                                        getVoteForDomain(
+                                                            variant.domain
+                                                        ) === -1 &&
+                                                            'text-red-600'
+                                                    )}
+                                                    onClick={() =>
+                                                        handleVote(
+                                                            variant.domain,
+                                                            -1
+                                                        )
+                                                    }
+                                                >
+                                                    <ThumbsDown
+                                                        className={cn(
+                                                            'size-3',
+                                                            getVoteForDomain(
+                                                                variant.domain
+                                                            ) === -1 &&
+                                                                'text-red-600'
+                                                        )}
+                                                        strokeWidth={1.75}
+                                                    />
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-4 items-center justify-end">
+                                            <button
+                                                type="button"
+                                                className={cn(
+                                                    'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                                    isDomainFavorited(
+                                                        variant.domain
+                                                    ) && 'text-red-600',
+                                                    !session?.user?.id &&
+                                                        'opacity-50 cursor-not-allowed'
+                                                )}
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+
+                                                    handleFavorite(
+                                                        variant.domain
+                                                    );
+                                                }}
+                                                disabled={!session?.user?.id}
+                                            >
+                                                <Heart
+                                                    className={cn(
+                                                        'size-4 pointer-events-none',
+                                                        isDomainFavorited(
+                                                            variant.domain
+                                                        ) &&
+                                                            'text-red-600 fill-red-600'
+                                                    )}
+                                                    strokeWidth={1.75}
+                                                    fill={
+                                                        isDomainFavorited(
+                                                            variant.domain
+                                                        )
+                                                            ? 'currentColor'
+                                                            : 'none'
+                                                    }
+                                                />
+                                            </button>
+                                            <button className="hover:cursor-pointer hover:scale-110 transition-all duration-300">
+                                                <ShoppingCart
+                                                    className="size-4"
+                                                    strokeWidth={1.75}
+                                                />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+
+                            {loading && variants.length === 0 ? (
+                                <span className="flex items-center justify-center text-xs py-1 animate-pulse">
+                                    Checking other top-level domains...
                                 </span>
-                                <div className="flex items-center gap-1">
-                                    <button
-                                        className={cn(
-                                            'hover:cursor-pointer hover:scale-110 transition-all duration-300',
-                                            getVoteForDomain(variant.domain) ===
-                                                1 && 'text-green-600'
-                                        )}
-                                        onClick={() =>
-                                            handleVote(variant.domain, 1)
-                                        }
-                                    >
-                                        <ThumbsUp
-                                            className={cn(
-                                                'size-3',
-                                                getVoteForDomain(
-                                                    variant.domain
-                                                ) === 1 && 'text-green-600'
-                                            )}
-                                            strokeWidth={1.75}
-                                        />
-                                    </button>
-                                    <button
-                                        className={cn(
-                                            'hover:cursor-pointer hover:scale-110 transition-all duration-300',
-                                            getVoteForDomain(variant.domain) ===
-                                                -1 && 'text-red-600'
-                                        )}
-                                        onClick={() =>
-                                            handleVote(variant.domain, -1)
-                                        }
-                                    >
-                                        <ThumbsDown
-                                            className={cn(
-                                                'size-3',
-                                                getVoteForDomain(
-                                                    variant.domain
-                                                ) === -1 && 'text-red-600'
-                                            )}
-                                            strokeWidth={1.75}
-                                        />
-                                    </button>
+                            ) : (
+                                <div className="w-full flex items-center justify-center pt-2">
+                                    {canShowMoreLocal ? (
+                                        <Button
+                                            onClick={handleShowMore}
+                                            size="sm"
+                                        >
+                                            Show more
+                                        </Button>
+                                    ) : canGenerateMore &&
+                                      variants.length > 0 ? (
+                                        <Button
+                                            onClick={handleGenerateMore}
+                                            size="sm"
+                                        >
+                                            Generate more
+                                        </Button>
+                                    ) : loading && variants.length > 0 ? (
+                                        <span className="text-xs animate-pulse">
+                                            Generating...
+                                        </span>
+                                    ) : !loading &&
+                                      variants.length === 0 &&
+                                      isStreamFinished ? (
+                                        <span className="text-xs">
+                                            No other TLDs found.
+                                        </span>
+                                    ) : null}
                                 </div>
-                            </div>
-                            <div className="flex gap-4 items-center justify-end">
-                                <button
-                                    type="button"
-                                    className={cn(
-                                        'hover:cursor-pointer hover:scale-110 transition-all duration-300',
-                                        isDomainFavorited(variant.domain) &&
-                                            'text-red-600',
-                                        !session?.user?.id &&
-                                            'opacity-50 cursor-not-allowed'
-                                    )}
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-
-                                        handleFavorite(variant.domain);
-                                    }}
-                                    disabled={!session?.user?.id}
-                                >
-                                    <Heart
-                                        className={cn(
-                                            'size-4 pointer-events-none',
-                                            isDomainFavorited(variant.domain) &&
-                                                'text-red-600 fill-red-600'
-                                        )}
-                                        strokeWidth={1.75}
-                                        fill={
-                                            isDomainFavorited(variant.domain)
-                                                ? 'currentColor'
-                                                : 'none'
-                                        }
-                                    />
-                                </button>
-                                <button className="hover:cursor-pointer hover:scale-110 transition-all duration-300">
-                                    <ShoppingCart
-                                        className="size-4"
-                                        strokeWidth={1.75}
-                                    />
-                                </button>
-                            </div>
+                            )}
                         </div>
-                    ))}
-
-                    {open &&
-                        (loading && variants.length === 0 ? (
-                            <span className="flex items-center justify-center text-xs py-1 animate-pulse">
-                                Checking other top-level domains...
-                            </span>
-                        ) : (
-                            <div className="w-full flex items-center justify-center pt-2">
-                                {canShowMoreLocal ? (
-                                    <Button onClick={handleShowMore} size="sm">
-                                        Show more
-                                    </Button>
-                                ) : canGenerateMore && variants.length > 0 ? (
-                                    <Button
-                                        onClick={handleGenerateMore}
-                                        size="sm"
-                                    >
-                                        Generate more
-                                    </Button>
-                                ) : loading && variants.length > 0 ? (
-                                    <span className="text-xs animate-pulse">
-                                        Generating...
-                                    </span>
-                                ) : !loading &&
-                                  variants.length === 0 &&
-                                  isStreamFinished ? (
-                                    <span className="text-xs">
-                                        No other TLDs found.
-                                    </span>
-                                ) : null}
-                            </div>
-                        ))}
-                </div>
-            </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </Card>
     );
 }
