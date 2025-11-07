@@ -48,8 +48,12 @@ class DomainCheckResult(BaseModel):
 def check_domains(domains: Sequence[str]) -> List[DomainCheckResult]:
     results: List[DomainCheckResult] = []
     for domain in domains:
-        status = check_domain(domain)
-        results.append(DomainCheckResult(domain=domain, status=status))
+        try:
+            status = check_domain(domain)
+            results.append(DomainCheckResult(domain=domain, status=status))
+        except Exception as e:
+            print(f"[Worker] Error checking domain '{domain}': {e}")
+            results.append(DomainCheckResult(domain=domain, status="invalid"))
     return results
 
 
@@ -59,7 +63,10 @@ def check_domain(domain: str) -> str:
     try:
         dns_lookup_with_timeout(domain, timeout=DNS_TIMEOUT)
         return "registered"
-    except socket.gaierror:
+    except (socket.gaierror, UnicodeEncodeError, ValueError) as e:
+        if isinstance(e, UnicodeEncodeError):
+            print(f"[Worker] Invalid domain encoding for '{domain}': {e}")
+            raise
         pass
     except socket.timeout:
         return "non conclusive"

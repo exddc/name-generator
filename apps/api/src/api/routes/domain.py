@@ -33,8 +33,10 @@ from api.utils import (
     store_domain_status,
     MetricsTracker,
     create_domain_rating,
+    filter_valid_domains,
+    upsert_domain_in_db,
 )
-from api.models.db_models import Rating as RatingDB, Domain as DomainDB, Favorite as FavoriteDB
+from api.models.db_models import Rating as RatingDB, Domain as DomainDB, Favorite as FavoriteDB, Suggestion as SuggestionDB
 from tortoise import connections
 from tortoise.expressions import Q
 
@@ -524,12 +526,13 @@ async def suggest(
     accumulated_lookup: dict[str, DomainSuggestion] = {}
     available_count = 0
     domains_to_store: list[tuple[str, DomainStatus]] = []
+    prompt_type = PromptType.LEXICON if request.creative else PromptType.LEGACY
 
     while retries < max_retries:
         metrics.start_timer("llm")
         metrics.increment_llm_call()
         try:
-            suggestions = await GroqSuggestor().generate(request.description, requested_count)
+            suggestions = await GroqSuggestor().generate(request.description, requested_count, prompt_type)
         except Exception as e:
             metrics.add_error(f"LLM error: {str(e)}")
             raise
@@ -600,7 +603,7 @@ async def suggest(
         request.description,
         requested_count,
         settings.groq_model,
-        PromptType.LEGACY.value,
+        prompt_type.value,
         domains_to_store,
         metrics,
         request.user_id
@@ -627,6 +630,14 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
         available_count = 0
         domains_to_store: list[tuple[str, DomainStatus]] = []
         first_suggestion_sent = False
+        prompt_type = PromptType.LEXICON if request.creative else PromptType.LEGACY
+        suggestion_db = await SuggestionDB.create(
+            description=request.description,
+            count=requested_count,
+            model=settings.groq_model,
+            prompt=prompt_type.value,
+            user_id=request.user_id,
+        )
 
         yield _format_sse(
             "start",
@@ -635,12 +646,12 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
                 "max_retries": max_retries,
             },
         )
-
+        
         while retries < max_retries:
             metrics.start_timer("llm")
             metrics.increment_llm_call()
             try:
-                suggestions = await GroqSuggestor().generate(request.description, requested_count)
+                suggestions = await GroqSuggestor().generate(request.description, requested_count, prompt_type)
             except Exception as e:
                 metrics.add_error(f"LLM error: {str(e)}")
                 raise
@@ -694,6 +705,11 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
 
                 domains_to_store.append((domain, status_enum))
                 metrics.add_domain_status(status_enum)
+                
+                try:
+                    await upsert_domain_in_db(domain, status_enum, suggestion_db.id)
+                except Exception as e:
+                    print(f"[Stream] Failed to store domain {domain} immediately: {e}")
 
                 existing = accumulated_lookup.get(domain)
                 if existing:
@@ -707,6 +723,11 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
                                 break
                         accumulated_lookup[domain] = suggestion
                         available_count += 1
+                        
+                        try:
+                            await upsert_domain_in_db(domain, status_enum, suggestion_db.id)
+                        except Exception as e:
+                            print(f"[Stream] Failed to update domain {domain} immediately: {e}")
                         
                         if not first_suggestion_sent:
                             metrics.mark_first_suggestion()
@@ -756,15 +777,7 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
 
         
         asyncio.create_task(
-            store_suggestion_batch(
-                request.description,
-                requested_count,
-                settings.groq_model,
-                PromptType.LEGACY.value,
-                domains_to_store,
-                metrics,
-                request.user_id
-            )
+            metrics.save(suggestion_db.id, requested_count)
         )
 
         yield _format_sse(
@@ -784,24 +797,47 @@ async def enqueue_and_wait(domains: List[str]) -> List[dict[str, str]]:
     if not domains:
         return []
 
+    # Filter out invalid domains before sending to worker
+    valid_domains, invalid_domains = filter_valid_domains(domains)
+    
+    # Return invalid status for invalid domains immediately
+    results: List[dict[str, str]] = [
+        {"domain": domain, "status": "invalid"} for domain in invalid_domains
+    ]
+    
+    if invalid_domains:
+        print(f"[API] Filtered out {len(invalid_domains)} invalid domains: {invalid_domains[:5]}...")
+    
+    if not valid_domains:
+        return results
+
     try:
-        job = queue.enqueue("domain_checker.main.handle_domain_check", args=[domains])
+        job = queue.enqueue("domain_checker.main.handle_domain_check", args=[valid_domains])
     except Exception as exc:  # pragma: no cover - enqueue errors
         raise HTTPException(status_code=503, detail="Failed to enqueue domain check job") from exc
 
     timeout = settings.rq_job_timeout_seconds
     if timeout <= 0:
-        return []
+        return results
 
     try:
-        result = await asyncio.to_thread(_wait_for_job_result, job, timeout)
-        return result
+        valid_results = await asyncio.to_thread(_wait_for_job_result, job, timeout)
+        results.extend(valid_results)
+        return results
     except TimeoutError:
         print(f"[API] Job {job.id} timed out after {timeout}s")
-        return []
+        # Return invalid status for domains that timed out
+        results.extend([
+            {"domain": domain, "status": "non conclusive"} for domain in valid_domains
+        ])
+        return results
     except RuntimeError as exc:  # pragma: no cover - job failures
         print(f"[API] Job {job.id} failed: {exc}")
-        raise HTTPException(status_code=500, detail="Domain check job failed") from exc
+        # Return invalid status for domains that failed
+        results.extend([
+            {"domain": domain, "status": "invalid"} for domain in valid_domains
+        ])
+        return results
 
 
 def _wait_for_job_result(job: Job, timeout: int) -> List[dict[str, str]]:
@@ -828,4 +864,6 @@ def map_worker_status_to_domain_status(status_value: str) -> DomainStatus:
         return DomainStatus.AVAILABLE
     if normalized == "registered":
         return DomainStatus.REGISTERED
+    if normalized == "invalid":
+        return DomainStatus.UNKNOWN  # Treat invalid domains as unknown
     return DomainStatus.UNKNOWN

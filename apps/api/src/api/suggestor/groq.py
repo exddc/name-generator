@@ -20,14 +20,14 @@ class GroqSuggestor(SuggestorBase):
 
         self.client = groq.Groq(api_key=self.api_key)
 
-    async def generate(self, description: str, count: int = 10) -> List[str]:
+    async def generate(self, description: str, count: int = 10, prompt_type: PromptType = PromptType.LEGACY) -> List[str]:
         try:
             completion = self.client.chat.completions.create(
             model=self.model,
             messages=[
             {
                 "role": "user",
-                "content": create_prompt(PromptType.LEGACY, description, count + 10)
+                "content": create_prompt(prompt_type, description, count + 10)
             }
             ],
             temperature=self.model_temperature,

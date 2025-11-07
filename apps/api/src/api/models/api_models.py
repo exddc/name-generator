@@ -27,6 +27,7 @@ class RequestDomainSuggestion(BaseModel):
     description: str
     count: int = Field(default=10, ge=1, le=100)
     user_id: str | None = None
+    creative: bool = Field(default=False, description="Use creative/lexicon prompt type instead of legacy")
 
 class ResponseDomainSuggestion(BaseModel):
     suggestions: List[DomainSuggestion]

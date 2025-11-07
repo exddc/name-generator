@@ -97,14 +97,25 @@ export default function DomainGenerator({
         abortControllerRef.current?.abort();
     };
 
-    const fetchSuggestions = async (controller: AbortController) => {
+    const fetchSuggestions = async (
+        controller: AbortController,
+        creative: boolean = false
+    ) => {
         try {
-            const requestBody: { description: string; user_id?: string } = {
+            const requestBody: {
+                description: string;
+                user_id?: string;
+                creative?: boolean;
+            } = {
                 description: userInput,
             };
 
             if (session?.user?.id) {
                 requestBody.user_id = session.user.id;
+            }
+
+            if (creative) {
+                requestBody.creative = true;
             }
 
             const response = await fetch(DOMAIN_SUGGESTION_URL, {
@@ -242,7 +253,7 @@ export default function DomainGenerator({
         await fetchSuggestions(controller);
     };
 
-    const handleGenerateMore = async () => {
+    const handleGenerateMore = async (creative: boolean = false) => {
         abortControllerRef.current?.abort();
 
         const controller = new AbortController();
@@ -253,7 +264,7 @@ export default function DomainGenerator({
         setHasReceivedFirstResponse(false);
         setFirstResponseTime(null);
         setLoadingText('Generating domains...');
-        await fetchSuggestions(controller);
+        await fetchSuggestions(controller, creative);
     };
 
     useEffect(() => {
@@ -391,10 +402,19 @@ export default function DomainGenerator({
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.2, ease: 'easeOut' }}
-                        className="w-full overflow-hidden flex items-center justify-center"
+                        className="w-full overflow-hidden flex items-center justify-center gap-4"
                     >
-                        <Button onClick={handleGenerateMore} size="sm">
-                            Generate more Suggestions
+                        <Button
+                            onClick={() => handleGenerateMore(false)}
+                            size="sm"
+                        >
+                            Generate more
+                        </Button>
+                        <Button
+                            onClick={() => handleGenerateMore(true)}
+                            size="sm"
+                        >
+                            Get creative
                         </Button>
                     </motion.div>
                 ) : null}

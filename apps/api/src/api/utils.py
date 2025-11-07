@@ -169,6 +169,78 @@ class MetricsTracker:
         return metrics
 
 
+def is_valid_domain(domain: str) -> bool:
+    """
+    Validate that a domain can be safely checked (IDNA encodable).
+    
+    Checks for:
+    - English characters only (ASCII)
+    - Invalid Unicode characters
+    - Ability to encode with IDNA codec
+    - Basic domain format
+    
+    Args:
+        domain: Domain string to validate
+        
+    Returns:
+        bool: True if domain is valid, False otherwise
+    """
+    if not domain or not isinstance(domain, str):
+        return False
+    
+    domain = domain.strip()
+    if not domain:
+        return False
+    
+    if '\ufffd' in domain:
+        return False
+    
+    for char in domain:
+        if ord(char) > 127:
+            return False
+    
+    try:
+        domain.encode('utf-8')
+    except UnicodeEncodeError:
+        return False
+    
+    if '.' not in domain:
+        return False
+    
+    parts = domain.split('.')
+    if any(not part or part.strip() == '' for part in parts):
+        return False
+    
+    try:
+        domain.encode('idna')
+    except (UnicodeEncodeError, ValueError):
+        return False
+    
+    return True
+
+
+def filter_valid_domains(domains: list[str]) -> tuple[list[str], list[str]]:
+    """
+    Filter a list of domains, separating valid from invalid ones.
+    
+    Args:
+        domains: List of domain strings to filter
+        
+    Returns:
+        tuple: (valid_domains, invalid_domains)
+    """
+    valid = []
+    invalid = []
+    
+    for domain in domains:
+        if is_valid_domain(domain):
+            valid.append(domain)
+        else:
+            invalid.append(domain)
+    
+    return valid, invalid
+
+
 def extract_domain_parts(full_domain: str) -> tuple[str, str]:
     """
     Use tldextract to handle multi-level TLDs (e.g., co.uk).
