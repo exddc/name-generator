@@ -335,6 +335,14 @@ export default function DomainGenerator({
             id="domain-generator-form"
             className="w-full max-w-2xl space-y-4 mt-6 bg-white p-5 rounded-2xl backdrop-blur-lg bg-opacity-40 border border-neutral-200 transition-all duration-300"
         >
+            <div className="flex items-center text-xs text-neutral-500 w-full justify-center">
+                <span className="font-semibold text-black bg-neutral-50 px-3 py-1 rounded-l-lg border border-neutral-300 hover:cursor-pointer hover:bg-neutral-100 transition-all duration-300 hover:text-neutral-800 hover:shadow-sm">
+                    Domain
+                </span>
+                <span className=" bg-neutral-100 bg-opacity-40 backdrop-blur-lg px-3 py-1 rounded-r-lg border border-l-0 border-neutral-300 hover:cursor-pointer hover:bg-neutral-50 transition-all duration-300 hover:text-neutral-800 hover:shadow-sm">
+                    Social Media (coming soon)
+                </span>
+            </div>
             <div className="relative overflow-hidden rounded-xl focus-within:ring-1 focus-within:ring-neutral-300">
                 <form className="flex border border-[#D9D9D9] px-4 py-3 text-base justify-between rounded-xl bg-white">
                     <textarea
