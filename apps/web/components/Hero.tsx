@@ -19,7 +19,7 @@ export default function Hero({ initialSearch }: HeroProps) {
             id="hero-domain-generator"
             className={cn(
                 'w-full flex flex-col items-center justify-center transition-all duration-500',
-                hasDomains ? '-mt-64' : '-mt-32'
+                hasDomains ? '-mt-12' : 'mt-12'
             )}
         >
             <div

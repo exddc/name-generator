@@ -32,7 +32,6 @@ import { useSession } from '@/lib/auth-client';
 
 // Components
 import { Card } from '@/components/ui/card';
-import HeroBackground from '@/components/HeroBackground';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -645,8 +644,7 @@ export default function TopDomains() {
     const totalPages = Math.ceil(total / pageSize);
 
     return (
-        <main className="flex flex-col items-center justify-center max-w-6xl gap-8 mx-auto px-6 xl:px-0">
-            <HeroBackground />
+        <div className="flex flex-col items-center justify-center w-full gap-8">
             <div className="flex flex-col w-full items-center justify-center gap-64">
                 <Card className="w-full max-w-6xl flex flex-col gap-4 min-h-[800px] xl:w-[1152px]">
                     <div className="mb-6">
@@ -948,6 +946,6 @@ export default function TopDomains() {
                     </div>
                 </div>
             </div>
-        </main>
+        </div>
     );
 }

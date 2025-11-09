@@ -11,7 +11,6 @@ import { cn } from '@/lib/utils';
 import Typewriter from '@/components/ui/typewriter';
 import { FaqSection } from '@/components/ui/faq';
 import ClientTweetCard from '@/components/ui/client-tweet-card';
-import HeroBackground from '@/components/HeroBackground';
 import Link from 'next/link';
 import Hero from '@/components/Hero';
 import { DomainRow } from '@/components/DomainGenerator';
@@ -24,9 +23,7 @@ export default function Home({ searchParams }: HomeProps) {
     const searchQuery = searchParams?.search || '';
 
     return (
-        <main className="flex flex-col items-center justify-center max-w-6xl gap-64 mx-auto px-6 xl:px-0">
-            <HeroBackground />
-
+        <div className="flex flex-col items-center justify-center w-full gap-64">
             <Hero initialSearch={searchQuery} />
 
             <div
@@ -214,6 +211,6 @@ export default function Home({ searchParams }: HomeProps) {
                     </Link>
                 </div>
             </div>
-        </main>
+        </div>
     );
 }

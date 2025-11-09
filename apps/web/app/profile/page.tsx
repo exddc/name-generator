@@ -10,7 +10,6 @@ import { Domain, DomainStatus } from '@/lib/types';
 
 // Components
 import { Card } from '@/components/ui/card';
-import HeroBackground from '@/components/HeroBackground';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DomainRow } from '@/components/DomainGenerator';
@@ -129,8 +128,7 @@ export default function Profile() {
     };
 
     return (
-        <main className="flex flex-col items-center justify-center max-w-6xl gap-8 mx-auto px-6 xl:px-0">
-            <HeroBackground />
+        <div className="flex flex-col items-center justify-center w-full gap-8">
             <div className="flex flex-col gap-8 w-full items-center justify-center">
                 <div className="flex flex-row gap-8 w-full">
                     <Card className="w-full max-w-md flex flex-col mx-auto">
@@ -230,6 +228,6 @@ export default function Profile() {
                     </div>
                 </Card>
             </div>
-        </main>
+        </div>
     );
 }

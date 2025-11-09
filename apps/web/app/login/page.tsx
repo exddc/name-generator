@@ -7,7 +7,6 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
 // Components
-import HeroBackground from '@/components/HeroBackground';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -45,8 +44,7 @@ export default function Login() {
 
     if (isSent) {
         return (
-            <main className="flex flex-col items-center justify-center max-w-6xl gap-64 mx-auto px-6 xl:px-0">
-                <HeroBackground />
+            <div className="flex flex-col items-center justify-center w-full gap-8">
                 <Card>
                     <div className="text-center">
                         <div className="mb-4">
@@ -104,14 +102,13 @@ export default function Login() {
                         </button>
                     </div>
                 </Card>
-            </main>
+            </div>
         );
     }
 
     return (
-        <main className="flex flex-col items-center justify-center max-w-6xl gap-64 mx-auto px-6 xl:px-0">
-            <HeroBackground />
-            <Card className="w-full max-w-md flex flex-col -mt-64">
+        <div className="flex flex-col items-center justify-center w-full -mt-64">
+            <Card className="w-full max-w-md flex flex-col">
                 <div className="mb-6">
                     <h1 className="text-3xl font-semibold tracking-tight mb-2">
                         Sign in
@@ -165,6 +162,6 @@ export default function Login() {
                     </Link>
                 </div>
             </Card>
-        </main>
+        </div>
     );
 }
