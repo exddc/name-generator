@@ -16,26 +16,27 @@ import Hero from '@/components/Hero';
 import { DomainRow } from '@/components/DomainGenerator';
 
 type HomeProps = {
-    searchParams: { search?: string };
+    searchParams: Promise<{ search?: string }>;
 };
 
-export default function Home({ searchParams }: HomeProps) {
-    const searchQuery = searchParams?.search || '';
+export default async function Home({ searchParams }: HomeProps) {
+    const params = await searchParams;
+    const searchQuery = params?.search || '';
 
     return (
-        <div className="flex flex-col items-center justify-center w-full gap-64">
+        <div className="flex flex-col items-center justify-center w-full gap-32 md:gap-64">
             <Hero initialSearch={searchQuery} />
 
             <div
                 id="get-many-suggestions"
-                className="w-full flex align-middle justify-center gap-12 z-10"
+                className="w-full flex flex-col md:flex-row align-middle justify-center gap-6 md:gap-12 z-10"
             >
-                <div className="w-full flex flex-col gap-4 text-left mt-20">
+                <div className="w-full flex flex-col gap-4 text-center md:text-left mt-20">
                     <h3 className="text-3xl font-semibold tracking-tight flex flex-col">
                         <span>Get useful suggestions</span>
                         <span>and iterations for your idea</span>
                     </h3>
-                    <p className="font-light text-balance text-lg">
+                    <p className="font-light text-balance text-base md:text-lg">
                         Finding a great domain name is the first step in
                         bringing your business, app, or project to the web.
                         <br />
@@ -44,7 +45,7 @@ export default function Home({ searchParams }: HomeProps) {
                         on.
                     </p>
                 </div>
-                <div className="w-full space-y-4 mt-6 bg-white p-5 rounded-2xl backdrop-blur-lg bg-opacity-40 border border-neutral-200">
+                <div className="w-full space-y-4 mt-6 bg-white p-3 md:p-5 rounded-2xl backdrop-blur-lg bg-opacity-40 border border-neutral-200">
                     <details open>
                         <summary className="cursor-pointer text-sm font-semibold mb-2 ml-2">
                             Available Domains ({exampleDomains.length})
@@ -81,7 +82,7 @@ export default function Home({ searchParams }: HomeProps) {
 
             <div
                 id="explain-your-idea"
-                className="w-full flexalign-middle flex flex-row justify-center transition-all duration-300 gap-12 z-10 items-center"
+                className="w-full align-middle flex flex-col-reverse md:flex-row justify-center transition-all duration-300 gap-6 md:gap-12 z-10 items-center"
             >
                 <div className="relative overflow-hidden rounded-xl group w-full">
                     <div className="w-full mt-6 bg-white p-5 rounded-2xl backdrop-blur-lg bg-opacity-40 border border-neutral-200 max-w-lg h-[200px] flex flex-col justify-between">
@@ -111,11 +112,11 @@ export default function Home({ searchParams }: HomeProps) {
                         </div>
                     </div>
                 </div>
-                <div className="w-full flex flex-col gap-4 text-right">
-                    <h3 className="text-3xl font-semibold tracking-tight flex flex-col">
+                <div className="w-full flex flex-col gap-4 text-center md:text-right">
+                    <h3 className="text-3xl font-semibold tracking-tight flex flex-col text-balance">
                         Describe what you&apos;re creating
                     </h3>
-                    <p className="font-light text-balance text-lg">
+                    <p className="font-light text-balance text-base md:text-lg">
                         Give a short description of your app, service, or
                         company idea. You will get at least 5 available domain
                         names that you can use.
@@ -124,13 +125,13 @@ export default function Home({ searchParams }: HomeProps) {
             </div>
             <div
                 id="how-it-started"
-                className="w-full flex align-middle justify-center gap-12 px-6 2xl:px-0 z-10 items-center"
+                className="w-full flex flex-col md:flex-row align-middle justify-center gap-12 px-6 2xl:px-0 z-10 items-center"
             >
-                <div className="w-full max-w-2xl flex flex-col gap-4 text-left">
+                <div className="w-full max-w-2xl flex flex-col gap-4 text-center md:text-left">
                     <h3 className="text-3xl font-semibold tracking-tight flex flex-col">
                         How it started
                     </h3>
-                    <p className="font-light text-balance text-lg">
+                    <p className="font-light text-balance text-base md:text-lg">
                         I just wanted a good domain for another project I was
                         working on. After trying a few domain generators that
                         were all slow and didn&apos;t give me the results I
@@ -145,15 +146,15 @@ export default function Home({ searchParams }: HomeProps) {
 
             <div
                 id="top-domains"
-                className="w-full flex align-middle justify-center gap-12 px-6 2xl:px-0 z-10 items-center"
+                className="w-full flex flex-col-reverse md:flex-row align-middle justify-center gap-6 md:gap-12 2xl:px-0 z-10 items-center"
             >
                 <div className="w-full flex flex-col gap-4 text-center">
-                    <h2 className="text-3xl font-semibold tracking-tight flex flex-col">
+                    <h2 className="text-3xl font-semibold tracking-tight flex flex-col text-balance">
                         Explore and get Inspired by
                         <br />
                         the Top Rated Domains that are still available
                     </h2>
-                    <p className="font-light text-balance text-lg">
+                    <p className="font-light text-balance text-base md:text-lg">
                         Discover the top-rated domain names that are still
                         available to register.
                         <br />
@@ -176,7 +177,7 @@ export default function Home({ searchParams }: HomeProps) {
 
             <div
                 id="faq"
-                className="w-full flex z-10 align-middle justify-center px-6 2xl:px-0 items-center mb-64"
+                className="w-full flex flex-col md:flex-row z-10 align-middle justify-center 2xl:px-0 items-center mb-64"
             >
                 <FaqSection
                     title="Frequently Asked Questions"
@@ -188,13 +189,13 @@ export default function Home({ searchParams }: HomeProps) {
 
             <div
                 id="get-started"
-                className="w-full flex align-middle justify-center gap-12 px-6 2xl:px-0 z-10 items-center"
+                className="w-full flex flex-col md:flex-row align-middle justify-center gap-6 md:gap-12 2xl:px-0 z-10 items-center"
             >
                 <div className="w-full flex flex-col gap-4 text-center">
-                    <h2 className="text-3xl font-semibold tracking-tight flex flex-col">
+                    <h2 className="text-3xl font-semibold tracking-tight flex flex-col text-balance">
                         Get the best fitting domain for your idea
                     </h2>
-                    <p className="font-light text-balance text-lg">
+                    <p className="font-light text-balance text-base md:text-lg">
                         Get yourself at least 5 available domain names that you
                         can use right now.
                     </p>

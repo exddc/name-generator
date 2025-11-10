@@ -33,7 +33,7 @@ const FaqSection = React.forwardRef<HTMLElement, FaqSectionProps>(
                         transition={{ duration: 0.5 }}
                         className="max-w-2xl mx-auto text-center mb-12"
                     >
-                        <h2 className="text-2xl font-semibold tracking-tight mb-2 bg-gradient-to-r from-foreground via-foreground/80 to-foreground bg-clip-text text-transparent">
+                        <h2 className="text-xl md:text-2xl font-semibold tracking-tight mb-2 bg-gradient-to-r from-foreground via-foreground/80 to-foreground bg-clip-text text-transparent">
                             {title}
                         </h2>
                         {description && (
@@ -114,12 +114,12 @@ const FaqItem = React.forwardRef<
             <Button
                 variant="ghost"
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full px-6 py-4 h-auto justify-between hover:bg-transparent"
+                className="w-full px-3 md:px-6 py-3 md:py-4 h-auto justify-between hover:bg-transparent"
             >
                 <h3
                     className={cn(
-                        'text-base font-medium transition-colors duration-200 text-left',
-                        'text-black/70',
+                        'text-sm md:text-base font-medium transition-colors duration-200 text-left',
+                        'text-black/70 text-balance',
                         isOpen && 'text-black'
                     )}
                 >

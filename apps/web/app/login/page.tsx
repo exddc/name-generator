@@ -107,7 +107,7 @@ export default function Login() {
     }
 
     return (
-        <div className="flex flex-col items-center justify-center w-full -mt-64">
+        <div className="flex flex-col items-center justify-center w-full mt-48 md:mt-32">
             <Card className="w-full max-w-md flex flex-col">
                 <div className="mb-6">
                     <h1 className="text-3xl font-semibold tracking-tight mb-2">

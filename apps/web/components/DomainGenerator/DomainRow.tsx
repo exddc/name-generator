@@ -341,21 +341,26 @@ export default function DomainRow({ domain }: DomainRowProps) {
     };
 
     return (
-        <Card className={cn('flex flex-col p-3 rounded-xl', open && 'gap-2')}>
+        <Card
+            className={cn(
+                'flex flex-col p-2 md:p-3 rounded-xl',
+                open && 'gap-2'
+            )}
+        >
             <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 md:gap-4">
                     <Link
                         href={'https://' + domain.domain}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-semibold"
+                        className="font-semibold text-sm md:text-base"
                     >
                         {domain.domain}
                     </Link>
                     <span
                         className={cn(
                             DomainStatusColor[domain.status],
-                            'text-neutral-800 font-semibold text-[0.4rem] border px-1 flex items-center h-[14px] rounded-xl'
+                            'text-neutral-800 font-semibold text-[0.3rem] md:text-[0.4rem] border px-1 flex items-center h-[14px] rounded-xl'
                         )}
                     >
                         {domain.status}
@@ -474,7 +479,7 @@ export default function DomainRow({ domain }: DomainRowProps) {
                                                 }
                                                 target="_blank"
                                                 rel="noreferrer"
-                                                className="font-normal"
+                                                className="font-normal text-sm md:text-base"
                                             >
                                                 {variant.domain}
                                             </Link>

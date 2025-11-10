@@ -130,13 +130,13 @@ export default function Profile() {
     return (
         <div className="flex flex-col items-center justify-center w-full gap-8">
             <div className="flex flex-col gap-8 w-full items-center justify-center">
-                <div className="flex flex-row gap-8 w-full">
-                    <Card className="w-full max-w-md flex flex-col mx-auto">
+                <div className="flex flex-col md:flex-row gap-8 w-full">
+                    <Card className="w-full flex flex-col mx-auto">
                         <div className="mb-6">
-                            <h1 className="text-3xl font-semibold tracking-tight mb-2">
+                            <h1 className="text-xl md:text-3xl font-semibold tracking-tight mb-2">
                                 Profile
                             </h1>
-                            <p className="text-gray-600">
+                            <p className="text-gray-600 text-sm md:text-base">
                                 Manage your account information
                             </p>
                         </div>
@@ -183,12 +183,12 @@ export default function Profile() {
                         </div>
                     </Card>
 
-                    <Card className="w-full max-w-md flex flex-col mx-auto">
+                    <Card className="w-full flex flex-col mx-auto">
                         <div className="mb-6">
-                            <h2 className="text-3xl font-semibold tracking-tight mb-2">
+                            <h2 className="text-xl md:text-3xl font-semibold tracking-tight mb-2">
                                 Settings
                             </h2>
-                            <p className="text-gray-600">
+                            <p className="text-gray-600 text-sm md:text-base">
                                 Manage your settings
                             </p>
                         </div>
@@ -197,7 +197,7 @@ export default function Profile() {
 
                 <Card className="w-full flex flex-col">
                     <div className="mb-6">
-                        <h2 className="text-2xl font-semibold tracking-tight mb-2">
+                        <h2 className="text-xl md:text-2xl font-semibold tracking-tight mb-2">
                             Favorites
                         </h2>
                         <p className="text-gray-600">Your favorited domains</p>

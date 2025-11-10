@@ -644,306 +644,294 @@ export default function TopDomains() {
     const totalPages = Math.ceil(total / pageSize);
 
     return (
-        <div className="flex flex-col items-center justify-center w-full gap-8">
-            <div className="flex flex-col w-full items-center justify-center gap-64">
-                <Card className="w-full max-w-6xl flex flex-col gap-4 min-h-[800px] xl:w-[1152px]">
-                    <div className="mb-6">
-                        <h1 className="text-3xl font-semibold tracking-tight mb-2">
-                            Top Rated Domains
-                        </h1>
-                        <p className="text-gray-600">
-                            Explore and get inspired by the top rated domains
-                            that are still available
-                        </p>
-                    </div>
+        <div className="flex flex-col w-full items-center justify-center gap-32 md:gap-64 mt-0 md:mt-24">
+            <Card className="w-full max-w-6xl flex flex-col gap-4 min-h-[800px] xl:w-[1152px]">
+                <div className="mb-6">
+                    <h1 className="text-xl md:text-3xl font-semibold tracking-tight mb-2">
+                        Top Rated Domains
+                    </h1>
+                    <p className="text-gray-600 text-sm md:text-base">
+                        Explore and get inspired by the top rated domains that
+                        are still available
+                    </p>
+                </div>
 
-                    <Input
-                        type="text"
-                        placeholder="Search for a domain or idea..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full"
-                    />
+                <Input
+                    type="text"
+                    placeholder="Search for a domain or idea..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full"
+                />
 
-                    {/* Filter Buttons */}
-                    <div className="flex flex-row gap-4">
-                        {/* Status Filter */}
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-medium text-gray-700">
-                                Status
-                            </span>
-                            <Button
-                                variant={
+                {/* Filter Buttons */}
+                <div className="flex flex-row gap-4">
+                    {/* Status Filter */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-medium text-gray-700">
+                            Status
+                        </span>
+                        <Button
+                            variant={
+                                statusFilter === 'available'
+                                    ? 'default'
+                                    : 'outline'
+                            }
+                            size="xs"
+                            onClick={() => {
+                                setStatusFilter(
                                     statusFilter === 'available'
-                                        ? 'default'
-                                        : 'outline'
-                                }
-                                size="xs"
-                                onClick={() => {
-                                    setStatusFilter(
-                                        statusFilter === 'available'
-                                            ? null
-                                            : 'available'
-                                    );
-                                    setPage(1);
-                                }}
-                            >
-                                Available
-                            </Button>
-                        </div>
-
-                        {/* Domain Length Filter */}
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-medium text-gray-700">
-                                Domain Length
-                            </span>
-                            <Button
-                                variant={
-                                    domainLengthFilter === '<5'
-                                        ? 'default'
-                                        : 'outline'
-                                }
-                                size="xs"
-                                onClick={() => {
-                                    setDomainLengthFilter(
-                                        domainLengthFilter === '<5'
-                                            ? null
-                                            : '<5'
-                                    );
-                                    setPage(1);
-                                }}
-                            >
-                                &lt;5 chars
-                            </Button>
-                            <Button
-                                variant={
-                                    domainLengthFilter === '<10'
-                                        ? 'default'
-                                        : 'outline'
-                                }
-                                size="xs"
-                                onClick={() => {
-                                    setDomainLengthFilter(
-                                        domainLengthFilter === '<10'
-                                            ? null
-                                            : '<10'
-                                    );
-                                    setPage(1);
-                                }}
-                            >
-                                &lt;10 chars
-                            </Button>
-                        </div>
-
-                        {/* TLD Filter */}
-                        {uniqueTlds.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs font-medium text-gray-700">
-                                    TLD
-                                </span>
-                                {tldFilter.size > 0 && (
-                                    <Button
-                                        variant="outline"
-                                        size="xs"
-                                        onClick={() => {
-                                            setTldFilter(new Set());
-                                            setPage(1);
-                                        }}
-                                    >
-                                        Clear ({tldFilter.size})
-                                    </Button>
-                                )}
-                                {uniqueTlds.slice(0, 10).map((tld) => (
-                                    <Button
-                                        key={tld}
-                                        variant={
-                                            tldFilter.has(tld)
-                                                ? 'default'
-                                                : 'outline'
-                                        }
-                                        size="xs"
-                                        onClick={() => {
-                                            setTldFilter((prev) => {
-                                                const next = new Set(prev);
-                                                if (next.has(tld)) {
-                                                    next.delete(tld);
-                                                } else {
-                                                    next.add(tld);
-                                                }
-                                                return next;
-                                            });
-                                            setPage(1);
-                                        }}
-                                    >
-                                        .{tld}
-                                    </Button>
-                                ))}
-                                {uniqueTlds.length > 10 && (
-                                    <span className="text-xs text-gray-500">
-                                        +{uniqueTlds.length - 10} more
-                                    </span>
-                                )}
-                            </div>
-                        )}
+                                        ? null
+                                        : 'available'
+                                );
+                                setPage(1);
+                            }}
+                        >
+                            Available
+                        </Button>
                     </div>
 
-                    {showLoadingIndicator ? (
-                        <div className="text-center py-8 flex-1 min-h-[500px] flex items-center justify-center">
-                            <p className="text-gray-600">Loading domains...</p>
-                        </div>
-                    ) : domains.length === 0 ? (
-                        <div className="text-center py-8 flex-1 min-h-[500px] flex flex-col items-center justify-center">
-                            <p className="text-gray-600 mb-4">
-                                {debouncedSearchQuery.trim()
-                                    ? `No domains found. You can generate domains for this search.`
-                                    : 'No domains found.'}
-                            </p>
-                            <Button
-                                onClick={() =>
-                                    router.push(
-                                        debouncedSearchQuery.trim()
-                                            ? `/?search=${encodeURIComponent(
-                                                  debouncedSearchQuery.trim()
-                                              )}`
-                                            : '/'
-                                    )
-                                }
-                            >
-                                {debouncedSearchQuery.trim()
-                                    ? 'Generate Domains'
-                                    : 'Generate Domains'}
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="w-full flex-1 min-h-[500px] flex flex-col">
-                            <div className="flex-1 overflow-auto w-full">
-                                <Table className="w-full">
-                                    <TableHeader>
-                                        {table
-                                            .getHeaderGroups()
-                                            .map((headerGroup) => (
-                                                <TableRow key={headerGroup.id}>
-                                                    {headerGroup.headers.map(
-                                                        (header) => (
-                                                            <TableHead
-                                                                key={header.id}
-                                                            >
-                                                                {header.isPlaceholder
-                                                                    ? null
-                                                                    : flexRender(
-                                                                          header
-                                                                              .column
-                                                                              .columnDef
-                                                                              .header,
-                                                                          header.getContext()
-                                                                      )}
-                                                            </TableHead>
-                                                        )
-                                                    )}
-                                                </TableRow>
-                                            ))}
-                                    </TableHeader>
-                                    <TableBody>
-                                        {table.getRowModel().rows?.length ? (
-                                            table
-                                                .getRowModel()
-                                                .rows.map((row) => (
-                                                    <TableRow
-                                                        key={row.id}
-                                                        data-state={
-                                                            row.getIsSelected() &&
-                                                            'selected'
-                                                        }
-                                                    >
-                                                        {row
-                                                            .getVisibleCells()
-                                                            .map((cell) => (
-                                                                <TableCell
-                                                                    key={
-                                                                        cell.id
-                                                                    }
-                                                                >
-                                                                    {flexRender(
-                                                                        cell
-                                                                            .column
-                                                                            .columnDef
-                                                                            .cell,
-                                                                        cell.getContext()
-                                                                    )}
-                                                                </TableCell>
-                                                            ))}
-                                                    </TableRow>
-                                                ))
-                                        ) : (
-                                            <TableRow>
-                                                <TableCell
-                                                    colSpan={columns.length}
-                                                    className="h-24 text-center"
-                                                >
-                                                    No results.
-                                                </TableCell>
-                                            </TableRow>
-                                        )}
-                                    </TableBody>
-                                </Table>
-                            </div>
+                    {/* Domain Length Filter */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-medium text-gray-700">
+                            Domain Length
+                        </span>
+                        <Button
+                            variant={
+                                domainLengthFilter === '<5'
+                                    ? 'default'
+                                    : 'outline'
+                            }
+                            size="xs"
+                            onClick={() => {
+                                setDomainLengthFilter(
+                                    domainLengthFilter === '<5' ? null : '<5'
+                                );
+                                setPage(1);
+                            }}
+                        >
+                            &lt;5 chars
+                        </Button>
+                        <Button
+                            variant={
+                                domainLengthFilter === '<10'
+                                    ? 'default'
+                                    : 'outline'
+                            }
+                            size="xs"
+                            onClick={() => {
+                                setDomainLengthFilter(
+                                    domainLengthFilter === '<10' ? null : '<10'
+                                );
+                                setPage(1);
+                            }}
+                        >
+                            &lt;10 chars
+                        </Button>
+                    </div>
 
-                            {totalPages > 1 && (
-                                <div className="flex items-center justify-between w-full">
-                                    <Button
-                                        variant="outline"
-                                        onClick={() =>
-                                            setPage((p) => Math.max(1, p - 1))
-                                        }
-                                        disabled={page === 1}
-                                    >
-                                        Previous
-                                    </Button>
-                                    <span className="text-sm text-gray-600">
-                                        Page {page} of {totalPages} ({total}{' '}
-                                        total)
-                                    </span>
-                                    <Button
-                                        variant="outline"
-                                        onClick={() =>
-                                            setPage((p) =>
-                                                Math.min(totalPages, p + 1)
-                                            )
-                                        }
-                                        disabled={page === totalPages}
-                                    >
-                                        Next
-                                    </Button>
-                                </div>
+                    {/* TLD Filter */}
+                    {uniqueTlds.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-medium text-gray-700">
+                                TLD
+                            </span>
+                            {tldFilter.size > 0 && (
+                                <Button
+                                    variant="outline"
+                                    size="xs"
+                                    onClick={() => {
+                                        setTldFilter(new Set());
+                                        setPage(1);
+                                    }}
+                                >
+                                    Clear ({tldFilter.size})
+                                </Button>
+                            )}
+                            {uniqueTlds.slice(0, 10).map((tld) => (
+                                <Button
+                                    key={tld}
+                                    variant={
+                                        tldFilter.has(tld)
+                                            ? 'default'
+                                            : 'outline'
+                                    }
+                                    size="xs"
+                                    onClick={() => {
+                                        setTldFilter((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(tld)) {
+                                                next.delete(tld);
+                                            } else {
+                                                next.add(tld);
+                                            }
+                                            return next;
+                                        });
+                                        setPage(1);
+                                    }}
+                                >
+                                    .{tld}
+                                </Button>
+                            ))}
+                            {uniqueTlds.length > 10 && (
+                                <span className="text-xs text-gray-500">
+                                    +{uniqueTlds.length - 10} more
+                                </span>
                             )}
                         </div>
                     )}
-                </Card>
+                </div>
 
-                <div
-                    id="get-started"
-                    className="w-full flex align-middle justify-center gap-12 px-6 2xl:px-0 z-10 items-center"
-                >
-                    <div className="w-full flex flex-col gap-4 text-center">
-                        <h2 className="text-3xl font-semibold tracking-tight flex flex-col">
-                            Did not find a good match for you?
-                        </h2>
-                        <p className="font-light text-balance text-lg">
-                            Get at least 5 avaialbe domains specificlly tailored
-                            for your idea and vision.
-                        </p>
-                        <Link
-                            href="/"
-                            className={cn(
-                                'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
-                                'bg-primary text-primary-foreground shadow hover:bg-primary/90',
-                                'h-9 px-4 py-2',
-                                'w-fit mx-auto mt-6'
-                            )}
-                        >
-                            Generate Domains
-                        </Link>
+                {showLoadingIndicator ? (
+                    <div className="text-center py-8 flex-1 min-h-[500px] flex items-center justify-center">
+                        <p className="text-gray-600">Loading domains...</p>
                     </div>
+                ) : domains.length === 0 ? (
+                    <div className="text-center py-8 flex-1 min-h-[500px] flex flex-col items-center justify-center">
+                        <p className="text-gray-600 mb-4">
+                            {debouncedSearchQuery.trim()
+                                ? `No domains found. You can generate domains for this search.`
+                                : 'No domains found.'}
+                        </p>
+                        <Button
+                            onClick={() =>
+                                router.push(
+                                    debouncedSearchQuery.trim()
+                                        ? `/?search=${encodeURIComponent(
+                                              debouncedSearchQuery.trim()
+                                          )}`
+                                        : '/'
+                                )
+                            }
+                        >
+                            {debouncedSearchQuery.trim()
+                                ? 'Generate Domains'
+                                : 'Generate Domains'}
+                        </Button>
+                    </div>
+                ) : (
+                    <div className="w-full flex-1 min-h-[500px] flex flex-col">
+                        <div className="flex-1 overflow-auto w-full">
+                            <Table className="w-full">
+                                <TableHeader>
+                                    {table
+                                        .getHeaderGroups()
+                                        .map((headerGroup) => (
+                                            <TableRow key={headerGroup.id}>
+                                                {headerGroup.headers.map(
+                                                    (header) => (
+                                                        <TableHead
+                                                            key={header.id}
+                                                        >
+                                                            {header.isPlaceholder
+                                                                ? null
+                                                                : flexRender(
+                                                                      header
+                                                                          .column
+                                                                          .columnDef
+                                                                          .header,
+                                                                      header.getContext()
+                                                                  )}
+                                                        </TableHead>
+                                                    )
+                                                )}
+                                            </TableRow>
+                                        ))}
+                                </TableHeader>
+                                <TableBody>
+                                    {table.getRowModel().rows?.length ? (
+                                        table.getRowModel().rows.map((row) => (
+                                            <TableRow
+                                                key={row.id}
+                                                data-state={
+                                                    row.getIsSelected() &&
+                                                    'selected'
+                                                }
+                                            >
+                                                {row
+                                                    .getVisibleCells()
+                                                    .map((cell) => (
+                                                        <TableCell
+                                                            key={cell.id}
+                                                        >
+                                                            {flexRender(
+                                                                cell.column
+                                                                    .columnDef
+                                                                    .cell,
+                                                                cell.getContext()
+                                                            )}
+                                                        </TableCell>
+                                                    ))}
+                                            </TableRow>
+                                        ))
+                                    ) : (
+                                        <TableRow>
+                                            <TableCell
+                                                colSpan={columns.length}
+                                                className="h-24 text-center"
+                                            >
+                                                No results.
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+
+                        {totalPages > 1 && (
+                            <div className="flex items-center justify-between w-full">
+                                <Button
+                                    variant="outline"
+                                    onClick={() =>
+                                        setPage((p) => Math.max(1, p - 1))
+                                    }
+                                    disabled={page === 1}
+                                >
+                                    Previous
+                                </Button>
+                                <span className="text-sm text-gray-600">
+                                    Page {page} of {totalPages} ({total} total)
+                                </span>
+                                <Button
+                                    variant="outline"
+                                    onClick={() =>
+                                        setPage((p) =>
+                                            Math.min(totalPages, p + 1)
+                                        )
+                                    }
+                                    disabled={page === totalPages}
+                                >
+                                    Next
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Card>
+
+            <div
+                id="get-started"
+                className="w-full flex align-middle justify-center gap-12 z-10 items-center"
+            >
+                <div className="w-full flex flex-col gap-4 text-center">
+                    <h2 className="text-3xl font-semibold tracking-tight flex flex-col text-balance">
+                        Did not find a good match for you?
+                    </h2>
+                    <p className="font-light text-balance text-lg">
+                        Get at least 5 avaialbe domains specificlly tailored for
+                        your idea and vision.
+                    </p>
+                    <Link
+                        href="/"
+                        className={cn(
+                            'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+                            'bg-primary text-primary-foreground shadow hover:bg-primary/90',
+                            'h-9 px-4 py-2',
+                            'w-fit mx-auto mt-6'
+                        )}
+                    >
+                        Generate Domains
+                    </Link>
                 </div>
             </div>
         </div>

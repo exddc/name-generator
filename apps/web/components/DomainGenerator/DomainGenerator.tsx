@@ -59,6 +59,20 @@ export default function DomainGenerator({
         }
     }, [initialSearch]);
 
+    // Set textAreaRows based on window width after mount
+    useEffect(() => {
+        const updateTextAreaRows = () => {
+            setTextAreaRows(window.innerWidth < 768 ? 2 : 1);
+        };
+
+        updateTextAreaRows();
+        window.addEventListener('resize', updateTextAreaRows);
+
+        return () => {
+            window.removeEventListener('resize', updateTextAreaRows);
+        };
+    }, []);
+
     const applySuggestionMessage = (message: StreamMessage) => {
         setDomains((prev) => {
             const next = [...prev];

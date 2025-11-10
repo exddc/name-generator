@@ -17,9 +17,12 @@ import {
 
 export default function Header() {
     const [showBorder, setShowBorder] = useState(false);
+    const [mounted, setMounted] = useState(false);
     const { data: session } = useSession();
 
     useEffect(() => {
+        setMounted(true);
+
         function handleScroll() {
             if (window.scrollY > 80) {
                 setShowBorder(true);
@@ -36,7 +39,7 @@ export default function Header() {
     }, []);
 
     return (
-        <header className="sticky top-0 z-50">
+        <header className="sticky top-0 z-50 px-4 xl:px-0">
             <div
                 className={cn(
                     `mx-auto w-full py-5 backdrop-blur-sm bg-opacity-60 transition-all duration-700 border-b`,
@@ -68,7 +71,7 @@ export default function Header() {
                                     asChild
                                     className={navigationMenuTriggerStyle()}
                                 >
-                                    {session?.user ? (
+                                    {mounted && session?.user ? (
                                         <Link href="/profile">Profile</Link>
                                     ) : (
                                         <Link href="/login">Login</Link>
