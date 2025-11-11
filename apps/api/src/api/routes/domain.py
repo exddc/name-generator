@@ -394,8 +394,8 @@ async def get_domain_variants(
         store_suggestion_batch,
         f"Variants for {domain_name}",
         limit,
-        "variants-check",
-        "variants-check",
+        settings.groq_model,
+        "variants",
         domains_to_store,
         metrics,
     )
@@ -492,8 +492,8 @@ async def get_domain_variants_stream(
             store_suggestion_batch(
                 f"Variants for {domain_name}",
                 limit,
-                "variants-check",
-                "variants-check",
+                settings.groq_model,
+                "variants",
                 domains_to_store,
                 metrics,
             )
