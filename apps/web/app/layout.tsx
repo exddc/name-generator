@@ -7,6 +7,7 @@ import Script from 'next/script';
 import './globals.css';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 const interSans = Inter({
     variable: '--font-inter-sans',
@@ -88,6 +89,7 @@ export default function RootLayout({
                 data-domain="domain-generator.timoweiss.me"
                 src="https://plausible.io/js/script.js"
             ></Script>
+            <SpeedInsights />
         </html>
     );
 }
