@@ -1,6 +1,7 @@
 // Libraries
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+import Script from 'next/script';
 
 // Components
 import './globals.css';
@@ -15,7 +16,33 @@ const interSans = Inter({
 export const metadata: Metadata = {
     title: 'Domain Generator',
     description:
-        'Get domain options based on your idea that are available to register',
+        'Generate domain names for you business, app, or project that are guaranteed available to register',
+    icons: {
+        icon: '/icon.png',
+    },
+    openGraph: {
+        title: 'Domain Generator',
+        description:
+            'Generate domain names for you business, app, or project that are guaranteed available to register',
+        url: 'https://domain-generator.timoweiss.me',
+        type: 'website',
+        images: [
+            {
+                url: 'https://domain-generator.timoweiss.me/og-image.jpg',
+                width: 1200,
+                height: 630,
+                alt: 'Domain Generator',
+            },
+        ],
+    },
+    twitter: {
+        title: 'Domain Generator',
+        description:
+            'Generate domain names for you business, app, or project that are guaranteed available to register',
+        images: ['https://domain-generator.timoweiss.me/og-image.jpg'],
+        card: 'summary_large_image',
+        creator: '@timooweiss',
+    },
 };
 
 export default function RootLayout({
@@ -56,6 +83,11 @@ export default function RootLayout({
                 </main>
                 <Footer />
             </body>
+            <Script
+                defer
+                data-domain="domain-generator.timoweiss.me"
+                src="https://plausible.io/js/script.js"
+            ></Script>
         </html>
     );
 }
