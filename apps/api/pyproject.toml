@@ -3,6 +3,9 @@ name = "api"
 version = "0.1.0"
 description = "API service for the domain generator."
 authors = ["Timo Weiss <timo.weiss@protonmail.ch>"]
+packages = [
+    { include = "api", from = "src" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.12"

@@ -1,12 +1,11 @@
 services:
   redis:
     image: bitnami/redis:latest
-    container_name: redis
     profiles: [dev]
     environment:
       - ALLOW_EMPTY_PASSWORD=yes
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/bitnami/redis/data
     restart: unless-stopped
@@ -14,7 +13,6 @@ services:
       - domain-generator-network
 
   postgres:
-    container_name: postgres
     image: postgres:18
     profiles: [dev]
     environment:
@@ -25,7 +23,7 @@ services:
     volumes:
        - postgres-data:/var/lib/postgresql
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     networks:
       - domain-generator-network
     restart: unless-stopped
@@ -37,8 +35,7 @@ services:
 
   worker:
     build:
-      context: ../apps/worker
-    container_name: domain-checker-worker
+      context: ./apps/worker
     profiles: [worker]
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
@@ -51,8 +48,7 @@ services:
 
   api:
     build:
-      context: ../apps/api
-    container_name: domain-generator-api
+      context: ./apps/api
     profiles: [api]
     ports:
       - "${API_PORT:-8000}:8000"
