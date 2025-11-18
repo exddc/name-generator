@@ -1,0 +1,24 @@
+meta {
+  name: Domain Status
+  type: http
+  seq: 13
+}
+
+get {
+  url: https://api.name-generator.timoweiss.me/v1/domain?domain=test.com
+  body: none
+  auth: inherit
+}
+
+params:query {
+  domain: test.com
+}
+
+body:json {
+  {"domain": "test.com"}
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -21,17 +21,18 @@ def init_fastapi() -> FastAPI:
         version=__version__,
     )
 
-    # CORS for local development
+    settings = get_settings()
+
+    # CORS configuration
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],
+        allow_origins=settings.cors_allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     # Initialize TortoiseORM
-    settings = get_settings()
     register_tortoise(
         app,
         config=settings.get_tortoise_config(),

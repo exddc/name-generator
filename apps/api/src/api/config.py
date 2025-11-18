@@ -1,4 +1,5 @@
 import os
+from typing import List
 
 from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -52,6 +53,10 @@ class Settings(BaseSettings):
     groq_model_top_p: float = os.environ.get("GROQ_MODEL_TOP_P", 0.95)
     """Groq model top p"""
 
+    # CORS Settings
+    cors_allow_origins: str | None = os.environ.get("CORS_ALLOW_ORIGINS", "http://localhost:3000")
+    """Comma-separated list of allowed CORS origins"""
+
     # Suggestions Settings
     max_suggestions_retries: int = int(os.environ.get("MAX_SUGGESTIONS_RETRIES", "5"))
     """Maximum attempts to fetch enough available suggestions"""
@@ -81,6 +86,12 @@ class Settings(BaseSettings):
                 }
             },
         }
+
+    @computed_field(return_type=List[str])
+    def cors_allowed_origins(self) -> list[str]:
+        """Return the parsed list of allowed CORS origins."""
+        raw_value = self.cors_allow_origins or "http://localhost:3000"
+        return [origin.strip() for origin in raw_value.split(",") if origin.strip()]
 
 _settings: Settings | None = None
 
