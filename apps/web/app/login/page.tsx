@@ -4,7 +4,6 @@
 import { useState } from 'react';
 import { authClient } from '@/lib/auth-client';
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
 
 // Components
 import { Card } from '@/components/ui/card';
@@ -16,6 +15,7 @@ export default function Login() {
     const [isLoading, setIsLoading] = useState(false);
     const [isSent, setIsSent] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const isProduction = process.env.NODE_ENV === 'production';
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -44,86 +44,115 @@ export default function Login() {
 
     if (isSent) {
         return (
-            <div className="flex flex-col items-center justify-center w-full gap-8">
-                <Card>
-                    <div className="text-center">
-                        <div className="mb-4">
-                            <svg
-                                className="mx-auto h-12 w-12 text-green-500"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M5 13l4 4L19 7"
-                                />
-                            </svg>
-                        </div>
-                        <h2 className="text-2xl font-semibold mb-2">
-                            Magic link generated
+            <section className="flex min-h-[70vh] w-full items-center justify-center py-16">
+                <Card className="w-full max-w-lg flex-col items-center gap-6 px-6 py-10 text-center md:px-12">
+                    <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-600">
+                        <svg
+                            className="h-7 w-7"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M5 13l4 4L19 7"
+                            />
+                        </svg>
+                    </span>
+
+                    <div className="space-y-2">
+                        <h2 className="text-3xl font-semibold tracking-tight">
+                            Magic link sent
                         </h2>
-                        <p className="text-gray-600 mb-4">
-                            A magic link has been generated for{' '}
-                            <strong>{email}</strong>.
+                        <p className="text-base text-gray-600 text-balance">
+                            We just sent a secure login link to{' '}
+                            <span className="font-medium text-gray-900">
+                                {email}
+                            </span>
+                            . Follow it to finish signing in.
                         </p>
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                            <p className="text-sm text-blue-800">
-                                <strong>🔍 Development Mode:</strong> Check your{' '}
-                                <strong>server terminal/console</strong>
-                                (where you ran{' '}
-                                <code className="bg-blue-100 px-1 rounded">
-                                    bun dev
-                                </code>
-                                ) to see the magic link URL. Copy it and open it
-                                in your browser to sign in.
-                            </p>
-                            <p className="text-xs text-blue-700 mt-2">
-                                Note: In production, this link would be sent via
-                                email. The user account will be created
-                                automatically when you click the magic link.
-                            </p>
-                        </div>
-                        <button
+                    </div>
+
+                    <div className="w-full">
+                        {isProduction ? (
+                            <div className="space-y-2 rounded-2xl border border-green-200 bg-green-50/80 p-4 text-left">
+                                <p className="text-sm font-semibold text-green-900">
+                                    Check your inbox
+                                </p>
+                                <p className="text-sm text-green-800">
+                                    The link expires quickly, so open the email
+                                    and click it within the next few minutes.
+                                    Look in your spam or promotions folders if
+                                    it doesn&apos;t arrive right away.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="space-y-2 rounded-2xl border border-blue-200 bg-blue-50/80 p-4 text-left">
+                                <p className="text-sm font-semibold text-blue-900">
+                                    Development mode
+                                </p>
+                                <p className="text-sm text-blue-800">
+                                    Check the terminal running{' '}
+                                    <code className="rounded bg-blue-100 px-1 py-0.5 text-xs font-semibold uppercase tracking-wide text-blue-900">
+                                        bun dev
+                                    </code>{' '}
+                                    for the printed magic link URL. Copy and
+                                    paste it into your browser to continue.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex w-full flex-col gap-3">
+                        <Button
+                            type="button"
+                            className="w-full"
                             onClick={() => {
                                 setIsSent(false);
                                 setEmail('');
                             }}
-                            className={cn(
-                                'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
-                                'bg-primary text-primary-foreground shadow hover:bg-primary/90',
-                                'h-9 px-4 py-2',
-                                'w-full'
-                            )}
                         >
                             Send another link
-                        </button>
+                        </Button>
+                        <Link
+                            href="/"
+                            className="text-sm font-medium text-gray-600 transition hover:text-gray-900"
+                        >
+                            ← Back to home
+                        </Link>
                     </div>
                 </Card>
-            </div>
+            </section>
         );
     }
 
     return (
-        <div className="flex flex-col items-center justify-center w-full mt-48 md:mt-32">
-            <Card className="w-full max-w-md flex flex-col">
-                <div className="mb-6">
-                    <h1 className="text-3xl font-semibold tracking-tight mb-2">
-                        Sign in
+        <section className="flex min-h-[70vh] w-full items-center justify-center py-16">
+            <Card className="w-full max-w-lg flex-col gap-8 px-6 py-10 md:px-12">
+                <div className="text-center">
+                    <p className="text-sm font-medium uppercase tracking-wide text-blue-600">
+                        Welcome back
+                    </p>
+                    <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+                        Sign in to continue
                     </h1>
-                    <p className="text-gray-600 text-sm text-balance">
-                        Enter your email address and we'll send you a link to
-                        sign in.
+                    <p className="mt-3 text-sm text-gray-600 text-balance">
+                        Enter your email address and we&apos;ll send you a magic
+                        link. No passwords, just one click.
                     </p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
+                <form
+                    onSubmit={handleSubmit}
+                    className="space-y-5 text-left"
+                    noValidate
+                >
+                    <div className="space-y-2">
                         <label
                             htmlFor="email"
-                            className="block text-sm font-medium mb-2"
+                            className="block text-sm font-medium text-gray-900"
                         >
                             Email address
                         </label>
@@ -134,12 +163,13 @@ export default function Login() {
                             onChange={(e) => setEmail(e.target.value)}
                             required
                             disabled={isLoading}
-                            placeholder="your@email.com"
+                            placeholder="you@email.com"
+                            className="h-12"
                         />
                     </div>
 
                     {error && (
-                        <div className="p-3 rounded-md bg-red-50 border border-red-200">
+                        <div className="rounded-2xl border border-red-200 bg-red-50/80 p-4">
                             <p className="text-sm text-red-800">{error}</p>
                         </div>
                     )}
@@ -149,19 +179,24 @@ export default function Login() {
                         disabled={isLoading || !email}
                         className="w-full"
                     >
-                        {isLoading ? 'Sending...' : 'Send link'}
+                        {isLoading ? 'Sending...' : 'Send magic link'}
                     </Button>
                 </form>
 
-                <div className="mt-6 text-center">
+                <div className="text-center text-sm text-gray-500">
+                    By continuing you agree to receive a one-time sign-in link
+                    to the email above.
+                </div>
+
+                <div className="text-center">
                     <Link
                         href="/"
-                        className="text-sm text-gray-600 hover:text-gray-900"
+                        className="text-sm font-medium text-gray-600 transition hover:text-gray-900"
                     >
                         ← Back to home
                     </Link>
                 </div>
             </Card>
-        </div>
+        </section>
     );
 }
