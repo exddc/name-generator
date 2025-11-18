@@ -132,9 +132,6 @@ export default function Login() {
         <section className="flex min-h-[70vh] w-full items-center justify-center py-16">
             <Card className="w-full max-w-lg flex-col gap-8 px-6 py-10 md:px-12">
                 <div className="text-center">
-                    <p className="text-sm font-medium uppercase tracking-wide text-blue-600">
-                        Welcome back
-                    </p>
                     <h1 className="mt-2 text-3xl font-semibold tracking-tight">
                         Sign in to continue
                     </h1>
