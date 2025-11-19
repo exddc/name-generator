@@ -18,6 +18,11 @@ body:json {
   }
 }
 
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+
 docs {
   # Create or Update Rating Endpoint
   
@@ -65,9 +70,3 @@ docs {
   - If user already rated the domain, updates the existing rating
   - One user can only have one rating per domain
 }
-
-settings {
-  encodeUrl: true
-  timeout: 0
-}
-

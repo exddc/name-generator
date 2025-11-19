@@ -1,7 +1,7 @@
 // Libraries
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import Script from 'next/script';
+import { init } from '@plausible-analytics/tracker';
 
 // Components
 import './globals.css';
@@ -9,6 +9,10 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import { Analytics } from '@vercel/analytics/next';
+
+init({
+    domain: 'name-generator.timoweiss.me',
+});
 
 const interSans = Inter({
     variable: '--font-inter-sans',
@@ -85,11 +89,6 @@ export default function RootLayout({
                 </main>
                 <Footer />
             </body>
-            <Script
-                defer
-                data-domain="domain-generator.timoweiss.me"
-                src="https://plausible.io/js/script.js"
-            ></Script>
             <SpeedInsights />
             <Analytics />
         </html>

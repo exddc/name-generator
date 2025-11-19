@@ -17,6 +17,11 @@ params:query {
   page_size: 20
 }
 
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+
 docs {
   # Get Ratings Endpoint
   
@@ -49,9 +54,3 @@ docs {
   - `page`: Current page number
   - `page_size`: Number of items per page
 }
-
-settings {
-  encodeUrl: true
-  timeout: 0
-}
-
