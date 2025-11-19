@@ -154,27 +154,59 @@ export default function DomainRow({ domain }: DomainRowProps) {
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
+                let buffer = '';
+                let streamCompleted = false;
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+                const processBuffer = () => {
+                    let delimiterIndex = buffer.indexOf('\n\n');
 
-                    const chunk = decoder.decode(value);
-                    const lines = chunk
-                        .split('\n')
-                        .filter((line) => line.trim());
+                    while (delimiterIndex !== -1) {
+                        const rawEvent = buffer.slice(0, delimiterIndex).trim();
+                        buffer = buffer.slice(delimiterIndex + 2);
 
-                    for (const line of lines) {
-                        if (line.startsWith('event: suggestions')) {
-                            const dataLine = lines.find((l) =>
-                                l.startsWith('data:')
-                            );
-                            if (dataLine) {
-                                const json = JSON.parse(dataLine.substring(5));
-                                if (json.new) {
+                        if (!rawEvent) {
+                            delimiterIndex = buffer.indexOf('\n\n');
+                            continue;
+                        }
+
+                        let eventType: string | null = null;
+                        let dataPayload = '';
+
+                        for (const rawLine of rawEvent.split('\n')) {
+                            const line = rawLine.trim();
+                            if (!line) {
+                                continue;
+                            }
+
+                            if (line.startsWith('event:')) {
+                                eventType = line.substring(6).trim();
+                            } else if (line.startsWith('data:')) {
+                                dataPayload += line.substring(5).trim();
+                            }
+                        }
+
+                        if (!eventType) {
+                            delimiterIndex = buffer.indexOf('\n\n');
+                            continue;
+                        }
+
+                        if (eventType === 'suggestions') {
+                            if (!dataPayload) {
+                                delimiterIndex = buffer.indexOf('\n\n');
+                                continue;
+                            }
+
+                            try {
+                                const payload = JSON.parse(dataPayload);
+                                const applySuggestions = (
+                                    items: Domain[] | undefined
+                                ) => {
+                                    if (!items?.length) {
+                                        return;
+                                    }
                                     setVariants((prev) => {
                                         const next = [...prev];
-                                        for (const item of json.new) {
+                                        for (const item of items) {
                                             const existingIndex =
                                                 next.findIndex(
                                                     (d) =>
@@ -188,13 +220,44 @@ export default function DomainRow({ domain }: DomainRowProps) {
                                         }
                                         return next;
                                     });
-                                }
+                                };
+
+                                applySuggestions(payload.new);
+                                applySuggestions(payload.updates);
+                            } catch (parseError) {
+                                console.error(
+                                    'Failed to parse variant suggestions event:',
+                                    parseError
+                                );
                             }
-                        } else if (line.startsWith('event: complete')) {
+                        } else if (eventType === 'complete') {
                             setIsStreamFinished(true);
                             setLoading(false);
+                            streamCompleted = true;
                             return;
                         }
+
+                        delimiterIndex = buffer.indexOf('\n\n');
+                    }
+                };
+
+                while (!streamCompleted) {
+                    const { done, value } = await reader.read();
+
+                    if (value) {
+                        buffer += decoder.decode(value, { stream: true });
+                        buffer = buffer.replace(/\r/g, '');
+                        processBuffer();
+                        if (streamCompleted) {
+                            break;
+                        }
+                    }
+
+                    if (done) {
+                        buffer += decoder.decode();
+                        buffer = buffer.replace(/\r/g, '');
+                        processBuffer();
+                        break;
                     }
                 }
             } catch (error) {
