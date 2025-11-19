@@ -1,5 +1,4 @@
 // Libraries
-import React from 'react';
 import {
     exampleDomains,
     exampleRegisteredDomains,
