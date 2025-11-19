@@ -7,8 +7,6 @@ import PlausibleProvider from 'next-plausible';
 import './globals.css';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
-import { SpeedInsights } from '@vercel/speed-insights/next';
-import { Analytics } from '@vercel/analytics/next';
 
 const interSans = Inter({
     variable: '--font-inter-sans',
@@ -87,8 +85,6 @@ export default function RootLayout({
                     <Footer />
                 </PlausibleProvider>
             </body>
-            <SpeedInsights />
-            <Analytics />
         </html>
     );
 }

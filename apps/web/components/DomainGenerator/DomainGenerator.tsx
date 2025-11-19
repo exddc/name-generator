@@ -5,6 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Domain, DomainStatus, StreamMessage } from '@/lib/types';
 import { useSession } from '@/lib/auth-client';
+import { usePlausible } from 'next-plausible';
 
 // Components
 import DomainSection from './DomainSection';
@@ -24,6 +25,7 @@ export default function DomainGenerator({
     onDomainsStatusChange,
     initialSearch,
 }: DomainGeneratorProps) {
+    const plausible = usePlausible();
     const { data: session } = useSession();
     const [userInput, setUserInput] = useState(initialSearch || '');
     const [domains, setDomains] = useState<Domain[]>([]);
@@ -253,6 +255,7 @@ export default function DomainGenerator({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        plausible('domain-generation-submit');
         abortControllerRef.current?.abort();
 
         const controller = new AbortController();
