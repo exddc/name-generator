@@ -11,6 +11,11 @@ import { usePlausible } from 'next-plausible';
 import DomainSection from './DomainSection';
 import { SendHorizonal, Square } from 'lucide-react';
 import { Button } from '../ui/button';
+import {
+    InputGroup,
+    InputGroupAddon,
+    InputGroupTextarea,
+} from '../ui/input-group';
 
 // Constants
 const DOMAIN_SUGGESTION_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/stream`;
@@ -31,7 +36,6 @@ export default function DomainGenerator({
     const [domains, setDomains] = useState<Domain[]>([]);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [textAreaRows, setTextAreaRows] = useState(1);
     const [loadingStartTime, setLoadingStartTime] = useState<number | null>(
         null
     );
@@ -48,6 +52,7 @@ export default function DomainGenerator({
     const [unknownDomains, setUnknownDomains] = useState<Domain[]>([]);
 
     const abortControllerRef = useRef<AbortController | null>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     // Collapsible state for sections
     const [isFreeOpen, setIsFreeOpen] = useState(true);
@@ -61,19 +66,13 @@ export default function DomainGenerator({
         }
     }, [initialSearch]);
 
-    // Set textAreaRows based on window width after mount
+    // Auto-resize textarea
     useEffect(() => {
-        const updateTextAreaRows = () => {
-            setTextAreaRows(window.innerWidth < 768 ? 2 : 1);
-        };
-
-        updateTextAreaRows();
-        window.addEventListener('resize', updateTextAreaRows);
-
-        return () => {
-            window.removeEventListener('resize', updateTextAreaRows);
-        };
-    }, []);
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        }
+    }, [userInput]);
 
     const applySuggestionMessage = (message: StreamMessage) => {
         setDomains((prev) => {
@@ -360,49 +359,60 @@ export default function DomainGenerator({
                     Social Media (coming soon)
                 </span>
             </div>
-            <div className="relative overflow-hidden rounded-xl focus-within:ring-1 focus-within:ring-neutral-300">
-                <form className="flex border border-[#D9D9D9] px-4 py-3 text-base justify-between rounded-xl bg-white">
-                    <textarea
-                        placeholder="Describe your app, service, or company idea..."
-                        value={userInput}
-                        onChange={(e) => {
-                            setUserInput(e.target.value);
-                            setTextAreaRows(
-                                Math.min(
-                                    Math.max(1, e.target.value.length / 50 + 1),
-                                    10
-                                )
-                            );
-                        }}
-                        className="w-full outline-none bg-transparent pr-4"
-                        rows={textAreaRows}
-                        style={{ resize: 'none' }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSubmit(e);
-                            }
-                        }}
-                    />
-                    <button
-                        type="button"
-                        onClick={isLoading ? handleCancel : handleSubmit}
-                        className="pl-4 pr-2 border-l border-[#D9D9D9] bg-transparent"
-                    >
-                        <span
-                            className="flex items-center justify-center hover:cursor-pointer hover:scale-110 transition-all duration-300"
-                            style={{ width: 24, height: 14 }}
+            <div className="relative overflow-hidden rounded-2xl">
+                <form
+                    onSubmit={handleSubmit}
+                    className="w-full rounded-2xl bg-white"
+                >
+                    <InputGroup className="rounded-2xl bg-white border border-neutral-200 shadow-sm h-auto overflow-hidden transition-all duration-200">
+                        <InputGroupTextarea
+                            ref={textareaRef}
+                            placeholder="Describe your app, service, or company idea..."
+                            value={userInput}
+                            onChange={(e) => {
+                                setUserInput(e.target.value);
+                            }}
+                            className="text-base bg-transparent resize-none pl-4 py-3 min-h-0"
+                            rows={1}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSubmit(e);
+                                }
+                            }}
+                        />
+                        <InputGroupAddon
+                            align="inline-end"
+                            className="pr-2 h-auto py-0 self-stretch flex items-center"
                         >
-                            {isLoading ? (
-                                <Square className="size-5" strokeWidth={1.5} />
-                            ) : (
-                                <SendHorizonal
-                                    className="size-5"
-                                    strokeWidth={1.5}
-                                />
-                            )}
-                        </span>
-                    </button>
+                            <button
+                                type="button"
+                                onClick={
+                                    isLoading ? handleCancel : handleSubmit
+                                }
+                                className="px-4 bg-transparent h-full flex items-center justify-center outline-none focus:outline-none text-neutral-400 hover:text-neutral-600 transition-colors duration-200"
+                            >
+                                <span
+                                    className="flex items-center justify-center hover:scale-110 transition-all duration-300"
+                                    style={{ width: 24, height: 24 }}
+                                >
+                                    {isLoading ? (
+                                        <Square
+                                            className="size-5"
+                                            strokeWidth={1.5}
+                                            fill="currentColor"
+                                            fillOpacity={0.2}
+                                        />
+                                    ) : (
+                                        <SendHorizonal
+                                            className="size-5"
+                                            strokeWidth={1.5}
+                                        />
+                                    )}
+                                </span>
+                            </button>
+                        </InputGroupAddon>
+                    </InputGroup>
                 </form>
             </div>
 
