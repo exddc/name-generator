@@ -74,6 +74,8 @@ export default function DomainGenerator({
         }
     }, [userInput]);
 
+    const markNewDomainsRef = useRef(false);
+
     const applySuggestionMessage = (message: StreamMessage) => {
         setDomains((prev) => {
             const next = [...prev];
@@ -87,9 +89,15 @@ export default function DomainGenerator({
                     );
 
                     if (existingIndex >= 0) {
-                        next[existingIndex] = item;
+                        next[existingIndex] = {
+                            ...item,
+                            isNew: next[existingIndex].isNew,
+                        };
                     } else {
-                        next.push(item);
+                        next.push({
+                            ...item,
+                            isNew: markNewDomainsRef.current,
+                        });
                         hasNewDomains = true;
                     }
                 }
@@ -257,6 +265,10 @@ export default function DomainGenerator({
         plausible('domain-generation-submit');
         abortControllerRef.current?.abort();
 
+        const isSubsequentSearch = domains.length > 0;
+        markNewDomainsRef.current = isSubsequentSearch;
+        setDomains((prev) => prev.map((d) => ({ ...d, isNew: false })));
+
         const controller = new AbortController();
         abortControllerRef.current = controller;
 
@@ -271,6 +283,9 @@ export default function DomainGenerator({
 
     const handleGenerateMore = async (creative: boolean = false) => {
         abortControllerRef.current?.abort();
+
+        markNewDomainsRef.current = true;
+        setDomains((prev) => prev.map((d) => ({ ...d, isNew: false })));
 
         const controller = new AbortController();
         abortControllerRef.current = controller;
@@ -321,14 +336,28 @@ export default function DomainGenerator({
     ]);
 
     useEffect(() => {
+        const sortDomains = (ds: Domain[]) => {
+            return ds.sort((a, b) => {
+                if (a.isNew && !b.isNew) return -1;
+                if (!a.isNew && b.isNew) return 1;
+                return 0;
+            });
+        };
+
         setFreeDomains(
-            domains.filter((d) => d.status === DomainStatus.AVAILABLE)
+            sortDomains(
+                domains.filter((d) => d.status === DomainStatus.AVAILABLE)
+            )
         );
         setRegisteredDomains(
-            domains.filter((d) => d.status === DomainStatus.REGISTERED)
+            sortDomains(
+                domains.filter((d) => d.status === DomainStatus.REGISTERED)
+            )
         );
         setUnknownDomains(
-            domains.filter((d) => d.status === DomainStatus.UNKNOWN)
+            sortDomains(
+                domains.filter((d) => d.status === DomainStatus.UNKNOWN)
+            )
         );
     }, [domains]);
 

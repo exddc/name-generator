@@ -412,6 +412,9 @@ export default function DomainRow({ domain }: DomainRowProps) {
         >
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 md:gap-4">
+                    {domain.isNew && (
+                        <div className="h-1.5 w-1.5 min-h-[6px] min-w-[6px] rounded-full bg-sky-500 animate-pulse" />
+                    )}
                     <Link
                         href={'https://' + domain.domain}
                         target="_blank"

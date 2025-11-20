@@ -9,6 +9,7 @@ export interface Domain {
     model?: string;
     prompt?: string;
     is_favorite?: boolean | null;
+    isNew?: boolean;
 }
 
 export enum DomainStatus {
