@@ -49,6 +49,10 @@ async def toggle_favorite(
                 domain=domain_obj,
                 user_id=request.user_id,
             )
+            
+            domain_obj.upvotes += 1
+            await domain_obj.save()
+
             return {
                 "success": True,
                 "action": "fav",
@@ -69,6 +73,10 @@ async def toggle_favorite(
                 }
             
             await existing_favorite.delete()
+
+            domain_obj.upvotes = max(0, domain_obj.upvotes - 1)
+            await domain_obj.save()
+
             return {
                 "success": True,
                 "action": "unfav",
