@@ -1,7 +1,7 @@
-from typing import List, Dict, Any
+from typing import Dict, Any
 from datetime import datetime, timedelta
 from fastapi import APIRouter
-from tortoise.functions import Sum, Count, Avg
+from tortoise.functions import Sum, Avg
 import numpy as np
 
 from api.models.db_models import SuggestionMetrics, Suggestion, Domain
@@ -15,12 +15,8 @@ async def get_metrics():
     Get dashboard metrics.
     """
     
-    # 1. Overall Stats
     total_suggestions = await Suggestion.all().count()
     total_domains = await Domain.all().count()
-    
-    # Metrics aggregation
-    # Using .values() to avoid grouping error
     metrics_data = await SuggestionMetrics.all().annotate(
         avg_success_rate=Avg("success_rate"),
         avg_latency=Avg("total_duration_ms"),
@@ -58,11 +54,6 @@ async def get_metrics():
     avg_tokens_per_request = metrics_agg.get("avg_tokens") or 0
     total_errors = metrics_agg.get("total_errors") or 0
     avg_retries = metrics_agg.get("avg_retries") or 0
-    
-    # Approximate cache hit rate based on domains returned vs unique generated
-    # If we return more domains than we generated unique ones, the difference likely comes from cache/overlap
-    # This is an estimation since we don't have explicit cache hit tracking column yet
-    # Logic: if unique_domains_generated < domains_returned, the gap is reused domains
     total_returned_data = await SuggestionMetrics.all().annotate(total=Sum("domains_returned")).values("total")
     total_returned = total_returned_data[0]["total"] if total_returned_data and total_returned_data[0]["total"] else 0
     
@@ -71,14 +62,12 @@ async def get_metrics():
     else:
         cache_hit_rate = 0.0
 
-    # Calculate P99 Latency manually
     all_latencies_objs = await SuggestionMetrics.filter(total_duration_ms__isnull=False).values_list("total_duration_ms", flat=True)
     if all_latencies_objs:
         p99_latency = float(np.percentile(all_latencies_objs, 99))
     else:
         p99_latency = 0.0
 
-    # Domain stats calculations
     if total_suggestions > 0:
         domains_per_suggestion = total_generated_domains / total_suggestions
         available_per_suggestion = total_available_domains / total_suggestions
@@ -91,7 +80,6 @@ async def get_metrics():
     else:
         unknown_domain_rate = 0
 
-    # 2. Time Series Data (Last 30 days)
     cutoff_date = datetime.now() - timedelta(days=30)
     
     recent_metrics = await SuggestionMetrics.filter(
@@ -100,7 +88,6 @@ async def get_metrics():
     
     daily_stats: Dict[str, Dict[str, Any]] = {}
     
-    # Group by day
     for m in recent_metrics:
         day_str = m.created_at.strftime("%Y-%m-%d")
         if day_str not in daily_stats:
@@ -146,8 +133,6 @@ async def get_metrics():
             avg_latency = sum(latencies) / len(latencies) if latencies else 0
             p50_latency = float(np.percentile(latencies, 50)) if latencies else 0
             p99_latency_daily = float(np.percentile(latencies, 99)) if latencies else 0
-            
-            # Daily cache hit rate estimation
             returned = stats["returned_sum"]
             generated = stats["generated_sum"]
             daily_cache_rate = 0.0
