@@ -44,3 +44,47 @@ export type FavoriteRequestBody = {
     user_id?: string;
     action: 'fav' | 'unfav';
 }
+
+export type TimeSeriesPoint = {
+    date: string;
+    requests: number;
+    avg_latency: number;
+    p50_latency: number;
+    p99_latency: number;
+    avg_success_rate: number;
+    avg_generation_time: number;
+    avg_check_time: number;
+    avg_yield: number;
+    avg_tokens: number;
+    error_count: number;
+    cache_hit_rate: number;
+    retry_rate: number;
+}
+
+export type MetricsResponse = {
+    total_suggestions: number;
+    total_domains: number;
+    total_generated_domains: number;
+    avg_success_rate: number;
+    avg_latency_ms: number;
+    
+    // New detailed metrics
+    p99_latency_ms: number;
+    avg_generation_time_ms: number;
+    avg_check_time_ms: number;
+    
+    // Domain stats
+    domains_per_suggestion: number;
+    available_per_suggestion: number;
+    unknown_domain_rate: number;
+    
+    // Resource stats
+    avg_tokens_per_request: number;
+    total_errors: number;
+    
+    // Reliability stats
+    avg_retry_count: number;
+    cache_hit_rate: number;
+    
+    chart_data: TimeSeriesPoint[];
+}

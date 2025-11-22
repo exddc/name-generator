@@ -28,6 +28,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-tweet": "^3.2.2",
+    "recharts": "^3.4.1",
     "resend": "^6.4.2",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7"

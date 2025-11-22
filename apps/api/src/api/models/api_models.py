@@ -89,3 +89,47 @@ class Domain(DomainSuggestion):
 class ResponseDomain(BaseModel):
     suggestions: List[Domain]
     total: int
+
+class TimeSeriesPoint(BaseModel):
+    date: str
+    requests: int
+    avg_latency: float
+    p50_latency: float
+    p99_latency: float
+    avg_success_rate: float
+    avg_generation_time: float
+    avg_check_time: float
+    avg_yield: float
+    avg_tokens: float
+    error_count: int
+    
+    # New reliability/efficiency metrics
+    cache_hit_rate: float
+    retry_rate: float
+
+class MetricsResponse(BaseModel):
+    total_suggestions: int
+    total_domains: int
+    total_generated_domains: int
+    avg_success_rate: float
+    avg_latency_ms: float
+    
+    # New detailed metrics
+    p99_latency_ms: float
+    avg_generation_time_ms: float
+    avg_check_time_ms: float
+    
+    # Domain stats
+    domains_per_suggestion: float
+    available_per_suggestion: float
+    unknown_domain_rate: float
+    
+    # Resource stats
+    avg_tokens_per_request: float
+    total_errors: int
+    
+    # Reliability stats
+    avg_retry_count: float
+    cache_hit_rate: float
+    
+    chart_data: List[TimeSeriesPoint]

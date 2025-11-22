@@ -130,9 +130,9 @@ export default function Login() {
 
     return (
         <section className="flex min-h-[70vh] w-full items-center justify-center py-16">
-            <Card className="w-full max-w-lg flex-col gap-8 px-6 py-10 md:px-12">
+            <Card className="w-full max-w-lg flex-col gap-8 px-6 py-10 md:px-12 border-neutral-200">
                 <div className="text-center">
-                    <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+                    <h1 className="mt-2 text-3xl font-heading font-semibold tracking-tight">
                         Sign in to continue
                     </h1>
                     <p className="mt-3 text-sm text-gray-600 text-balance">

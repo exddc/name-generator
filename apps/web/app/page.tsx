@@ -31,7 +31,7 @@ export default async function Home({ searchParams }: HomeProps) {
                 className="w-full flex flex-col md:flex-row align-middle justify-center gap-6 md:gap-12 z-10"
             >
                 <div className="w-full flex flex-col gap-4 text-center md:text-left mt-20">
-                    <h3 className="text-3xl font-semibold tracking-tight flex flex-col">
+                    <h3 className="text-3xl font-heading font-semibold tracking-tight flex flex-col">
                         <span>Get useful suggestions</span>
                         <span>and iterations for your idea</span>
                     </h3>
@@ -112,7 +112,7 @@ export default async function Home({ searchParams }: HomeProps) {
                     </div>
                 </div>
                 <div className="w-full flex flex-col gap-4 text-center md:text-right">
-                    <h3 className="text-3xl font-semibold tracking-tight flex flex-col text-balance">
+                    <h3 className="text-3xl font-heading font-semibold tracking-tight flex flex-col text-balance">
                         Describe what you&apos;re creating
                     </h3>
                     <p className="font-light text-balance text-base md:text-lg">
@@ -127,7 +127,7 @@ export default async function Home({ searchParams }: HomeProps) {
                 className="w-full flex flex-col md:flex-row align-middle justify-center gap-12 px-6 2xl:px-0 z-10 items-center"
             >
                 <div className="w-full max-w-2xl flex flex-col gap-4 text-center md:text-left">
-                    <h3 className="text-3xl font-semibold tracking-tight flex flex-col">
+                    <h3 className="text-3xl font-heading font-semibold tracking-tight flex flex-col">
                         How it started
                     </h3>
                     <p className="font-light text-balance text-base md:text-lg">
@@ -148,7 +148,7 @@ export default async function Home({ searchParams }: HomeProps) {
                 className="w-full flex flex-col-reverse md:flex-row align-middle justify-center gap-6 md:gap-12 2xl:px-0 z-10 items-center"
             >
                 <div className="w-full flex flex-col gap-4 text-center">
-                    <h2 className="text-3xl font-semibold tracking-tight flex flex-col text-balance">
+                    <h2 className="text-3xl font-heading font-semibold tracking-tight flex flex-col text-balance">
                         Explore and get Inspired by
                         <br />
                         the Top Rated Domains that are still available
@@ -191,7 +191,7 @@ export default async function Home({ searchParams }: HomeProps) {
                 className="w-full flex flex-col md:flex-row align-middle justify-center gap-6 md:gap-12 2xl:px-0 z-10 items-center"
             >
                 <div className="w-full flex flex-col gap-4 text-center">
-                    <h2 className="text-3xl font-semibold tracking-tight flex flex-col text-balance">
+                    <h2 className="text-3xl font-heading font-semibold tracking-tight flex flex-col text-balance">
                         Get the best fitting domain for your idea
                     </h2>
                     <p className="font-light text-balance text-base md:text-lg">

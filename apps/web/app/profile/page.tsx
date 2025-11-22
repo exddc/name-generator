@@ -14,6 +14,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DomainRow } from '@/components/DomainGenerator';
 
+import { PageShell, PageHeader } from '@/components/page-layout';
+
 const FAVORITE_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/user/favorite`;
 
 export default function Profile() {
@@ -128,15 +130,20 @@ export default function Profile() {
     };
 
     return (
-        <div className="flex flex-col items-center justify-center w-full gap-8">
-            <div className="flex flex-col gap-8 w-full items-center justify-center">
+        <PageShell>
+            <PageHeader
+                title="Account"
+                description="Manage your profile and settings"
+            />
+
+            <div className="flex flex-col gap-8 w-full items-center justify-center max-w-6xl xl:w-[1152px]">
                 <div className="flex flex-col md:flex-row gap-8 w-full">
-                    <Card className="w-full flex flex-col mx-auto">
+                    <Card className="w-full flex flex-col mx-auto border-neutral-200">
                         <div className="mb-6">
-                            <h1 className="text-xl md:text-3xl font-semibold tracking-tight mb-2">
+                            <h2 className="text-xl font-heading font-semibold tracking-tight mb-2">
                                 Profile
-                            </h1>
-                            <p className="text-gray-600 text-sm md:text-base">
+                            </h2>
+                            <p className="text-gray-600 text-sm">
                                 Manage your account information
                             </p>
                         </div>
@@ -183,24 +190,24 @@ export default function Profile() {
                         </div>
                     </Card>
 
-                    <Card className="w-full flex flex-col mx-auto">
+                    <Card className="w-full flex flex-col mx-auto border-neutral-200">
                         <div className="mb-6">
-                            <h2 className="text-xl md:text-3xl font-semibold tracking-tight mb-2">
+                            <h2 className="text-xl font-heading font-semibold tracking-tight mb-2">
                                 Settings
                             </h2>
-                            <p className="text-gray-600 text-sm md:text-base">
+                            <p className="text-gray-600 text-sm">
                                 Manage your settings
                             </p>
                         </div>
                     </Card>
                 </div>
 
-                <Card className="w-full flex flex-col">
+                <Card className="w-full flex flex-col border-neutral-200">
                     <div className="mb-6">
-                        <h2 className="text-xl md:text-2xl font-semibold tracking-tight mb-2">
+                        <h2 className="text-xl font-heading font-semibold tracking-tight mb-2">
                             Favorites
                         </h2>
-                        <p className="text-gray-600">Your favorited domains</p>
+                        <p className="text-gray-600 text-sm">Your favorited domains</p>
                     </div>
 
                     <div className="space-y-3">
@@ -228,6 +235,6 @@ export default function Profile() {
                     </div>
                 </Card>
             </div>
-        </div>
+        </PageShell>
     );
 }

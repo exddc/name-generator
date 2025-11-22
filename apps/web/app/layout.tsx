@@ -1,15 +1,20 @@
 // Libraries
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import PlausibleProvider from 'next-plausible';
 
 // Components
 import './globals.css';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import { Public_Sans, Manrope } from 'next/font/google';
 
-const interSans = Inter({
-    variable: '--font-inter-sans',
+const publicSans = Public_Sans({
+    variable: '--font-heading',
+    subsets: ['latin'],
+});
+
+const manrope = Manrope({
+    variable: '--font-sans',
     subsets: ['latin'],
 });
 
@@ -53,7 +58,7 @@ export default function RootLayout({
     return (
         <html lang="en" className="w-full h-full">
             <body
-                className={`${interSans.variable} antialiased flex flex-col w-full min-h-screen`}
+                className={`${publicSans.variable} ${manrope.variable} antialiased flex flex-col w-full min-h-screen font-sans`}
             >
                 <PlausibleProvider domain="name-generator.timoweiss.me">
                     <div className="fixed inset-0 flex blur-[130px] z-0 justify-center items-center pointer-events-none overflow-hidden">

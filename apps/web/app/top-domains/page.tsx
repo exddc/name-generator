@@ -44,6 +44,8 @@ import {
 } from '@/components/ui/table';
 import Link from 'next/link';
 
+import { PageShell, PageHeader } from '@/components/page-layout';
+
 const TOP_DOMAINS_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/top`;
 const RATING_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
 const RATINGS_GET_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
@@ -644,18 +646,13 @@ export default function TopDomains() {
     const totalPages = Math.ceil(total / pageSize);
 
     return (
-        <div className="flex flex-col w-full items-center justify-center gap-32 md:gap-64 mt-0 md:mt-24">
-            <Card className="w-full max-w-6xl flex flex-col gap-4 min-h-[800px] xl:w-[1152px]">
-                <div className="mb-6">
-                    <h1 className="text-xl md:text-3xl font-semibold tracking-tight mb-2">
-                        Top Rated Domains
-                    </h1>
-                    <p className="text-gray-600 text-sm md:text-base">
-                        Explore and get inspired by the top rated domains that
-                        are still available
-                    </p>
-                </div>
+        <PageShell>
+            <PageHeader
+                title="Top Rated Domains"
+                description="Explore and get inspired by the top rated domains that are still available"
+            />
 
+            <Card className="w-full max-w-6xl flex flex-col gap-4 min-h-[800px] xl:w-[1152px] border-neutral-200">
                 <Input
                     type="text"
                     placeholder="Search for a domain or idea..."
@@ -914,7 +911,7 @@ export default function TopDomains() {
                 className="w-full flex align-middle justify-center gap-12 z-10 items-center"
             >
                 <div className="w-full flex flex-col gap-4 text-center">
-                    <h2 className="text-3xl font-semibold tracking-tight flex flex-col text-balance">
+                    <h2 className="text-3xl font-heading font-semibold tracking-tight flex flex-col text-balance">
                         Did not find a good match for you?
                     </h2>
                     <p className="font-light text-balance text-lg">
@@ -934,6 +931,6 @@ export default function TopDomains() {
                     </Link>
                 </div>
             </div>
-        </div>
+        </PageShell>
     );
 }
