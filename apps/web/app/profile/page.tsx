@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Domain, DomainStatus } from '@/lib/types';
+import { toast } from '@/components/ui/sonner';
 
 // Components
 import { Card } from '@/components/ui/card';
@@ -77,9 +78,12 @@ export default function Profile() {
                             }
                         ) || [];
                     setFavorites(domainObjects);
+                } else {
+                    toast.error('Failed to load favorites');
                 }
             } catch (error) {
                 console.error('Failed to fetch favorites:', error);
+                toast.error('Failed to load favorites. Please try again.');
             } finally {
                 setIsLoadingFavorites(false);
             }
@@ -119,8 +123,10 @@ export default function Profile() {
             await authClient.updateUser({
                 name: name.trim(),
             });
+            toast.success('Name updated successfully');
         } catch (error) {
             console.error('Failed to update name:', error);
+            toast.error('Failed to update name. Please try again.');
             if (session?.user?.name) {
                 setName(session.user.name);
             }

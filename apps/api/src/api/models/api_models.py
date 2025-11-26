@@ -3,6 +3,37 @@ from typing import List
 import datetime
 from enum import Enum
 
+# Error Codes for user-friendly messages
+class ErrorCode(str, Enum):
+    # Service errors
+    SERVICE_UNAVAILABLE = "service_unavailable"
+    TIMEOUT = "timeout"
+    RATE_LIMITED = "rate_limited"
+    
+    # Domain generation errors
+    GENERATION_FAILED = "generation_failed"
+    NO_DOMAINS_FOUND = "no_domains_found"
+    
+    # Validation errors
+    INVALID_INPUT = "invalid_input"
+    DOMAIN_NOT_FOUND = "domain_not_found"
+    
+    # Auth errors
+    AUTH_REQUIRED = "auth_required"
+    
+    # Generic
+    INTERNAL_ERROR = "internal_error"
+
+
+class ErrorResponse(BaseModel):
+    """User-friendly error response model"""
+    error: bool = True
+    code: ErrorCode
+    message: str
+    details: str | None = None
+    retry_allowed: bool = False
+
+
 # Enums
 class DomainStatus(str, Enum):
     AVAILABLE = "available"

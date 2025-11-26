@@ -11,6 +11,7 @@ import {
 } from '@/lib/types';
 import { cn, getAnonRandomId, getDomainRegistrarUrl } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
+import { toast } from '@/components/ui/sonner';
 
 // Components
 import Link from 'next/link';
@@ -319,13 +320,11 @@ export default function DomainRow({ domain }: DomainRowProps) {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(
-                    errorData.detail ||
-                        `Failed to submit vote: ${response.statusText}`
-                );
+                const errorMessage = errorData.detail?.message || errorData.detail || 
+                    'Failed to submit vote';
+                toast.error(errorMessage);
+                return;
             }
-
-            const result = await response.json();
 
             // Update local vote state
             setDomainVotes((prev) => {
@@ -335,6 +334,7 @@ export default function DomainRow({ domain }: DomainRowProps) {
             });
         } catch (error) {
             console.error('Failed to submit vote:', error);
+            toast.error('Failed to submit vote. Please try again.');
         } finally {
             setVotingDomain(null);
         }
@@ -350,6 +350,15 @@ export default function DomainRow({ domain }: DomainRowProps) {
 
     const handleFavorite = async (domain: string) => {
         if (!session?.user?.id) {
+            toast.info('You need to be logged in to favorite domains', {
+                description: 'Sign in to save your favorite domain names.',
+                action: {
+                    label: 'Sign in',
+                    onClick: () => {
+                        window.location.href = '/login';
+                    },
+                },
+            });
             return;
         }
 
@@ -379,12 +388,10 @@ export default function DomainRow({ domain }: DomainRowProps) {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(
-                    errorData.detail ||
-                        `Failed to ${
-                            action === 'fav' ? 'favorite' : 'unfavorite'
-                        } domain: ${response.statusText}`
-                );
+                const errorMessage = errorData.detail?.message || errorData.detail || 
+                    `Failed to ${action === 'fav' ? 'favorite' : 'unfavorite'} domain`;
+                toast.error(errorMessage);
+                return;
             }
 
             setFavoritedDomains((prev) => {
@@ -396,8 +403,14 @@ export default function DomainRow({ domain }: DomainRowProps) {
                 }
                 return next;
             });
+            
+            // Show success toast
+            if (action === 'fav') {
+                toast.success(`Added ${domain} to favorites`);
+            }
         } catch (error) {
             console.error('Failed to toggle favorite:', error);
+            toast.error('Failed to update favorite. Please try again.');
         } finally {
             setFavoritingDomain(null);
         }
@@ -474,8 +487,7 @@ export default function DomainRow({ domain }: DomainRowProps) {
                         className={cn(
                             'hover:cursor-pointer hover:scale-110 transition-all duration-300',
                             isDomainFavorited(domain.domain) && 'text-red-600',
-                            !session?.user?.id &&
-                                'opacity-50 cursor-not-allowed'
+                            !session?.user?.id && 'opacity-50'
                         )}
                         onClick={(e) => {
                             e.preventDefault();
@@ -483,7 +495,6 @@ export default function DomainRow({ domain }: DomainRowProps) {
 
                             handleFavorite(domain.domain);
                         }}
-                        disabled={!session?.user?.id}
                     >
                         <Heart
                             className={cn(
@@ -623,7 +634,7 @@ export default function DomainRow({ domain }: DomainRowProps) {
                                                         variant.domain
                                                     ) && 'text-red-600',
                                                     !session?.user?.id &&
-                                                        'opacity-50 cursor-not-allowed'
+                                                        'opacity-50'
                                                 )}
                                                 onClick={(e) => {
                                                     e.preventDefault();
@@ -633,7 +644,6 @@ export default function DomainRow({ domain }: DomainRowProps) {
                                                         variant.domain
                                                     );
                                                 }}
-                                                disabled={!session?.user?.id}
                                             >
                                                 <Heart
                                                     className={cn(

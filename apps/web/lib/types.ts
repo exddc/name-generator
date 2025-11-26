@@ -24,12 +24,39 @@ export enum DomainStatusColor {
     'unknown' = 'bg-yellow-300 border-yellow-500/40 bg-opacity-40',
 }
 
+// Error handling types
+export enum ErrorCode {
+    SERVICE_UNAVAILABLE = 'service_unavailable',
+    TIMEOUT = 'timeout',
+    RATE_LIMITED = 'rate_limited',
+    GENERATION_FAILED = 'generation_failed',
+    NO_DOMAINS_FOUND = 'no_domains_found',
+    INVALID_INPUT = 'invalid_input',
+    DOMAIN_NOT_FOUND = 'domain_not_found',
+    AUTH_REQUIRED = 'auth_required',
+    INTERNAL_ERROR = 'internal_error',
+}
+
+export interface ApiError {
+    error: boolean;
+    code: ErrorCode;
+    message: string;
+    details?: string | null;
+    retry_allowed: boolean;
+}
+
 export type StreamMessage = {
     new?: Domain[];
     updates?: Domain[];
     suggestions?: Domain[];
     available_count?: number;
     total?: number;
+    // Error fields (when event type is 'error')
+    error?: boolean;
+    code?: ErrorCode;
+    message?: string;
+    details?: string | null;
+    retry_allowed?: boolean;
 };
 
 export type RatingRequestBody = {

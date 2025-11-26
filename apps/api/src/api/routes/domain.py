@@ -9,6 +9,7 @@ from typing import List
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from redis import Redis
+from redis.exceptions import ConnectionError as RedisConnectionError
 from rq import Queue
 from rq.job import Job
 
@@ -24,6 +25,15 @@ from api.models.api_models import (
     RequestRating,
     RatingResponse,
     ResponseRatings,
+    ErrorCode,
+    ErrorResponse,
+)
+from api.exceptions import (
+    DomainGeneratorException,
+    ServiceUnavailableError,
+    GenerationFailedError,
+    InvalidInputError,
+    create_error_response,
 )
 from api.suggestor.groq import GroqSuggestor
 from api.suggestor.prompts import PromptType
@@ -631,13 +641,24 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
         domains_to_store: list[tuple[str, DomainStatus]] = []
         first_suggestion_sent = False
         prompt_type = PromptType.LEXICON if request.creative else PromptType.LEGACY
-        suggestion_db = await SuggestionDB.create(
-            description=request.description,
-            count=requested_count,
-            model=settings.groq_model,
-            prompt=prompt_type.value,
-            user_id=request.user_id,
-        )
+        
+        try:
+            suggestion_db = await SuggestionDB.create(
+                description=request.description,
+                count=requested_count,
+                model=settings.groq_model,
+                prompt=prompt_type.value,
+                user_id=request.user_id,
+            )
+        except Exception as e:
+            print(f"[Stream] Failed to create suggestion record: {e}")
+            error_response = create_error_response(
+                ErrorCode.INTERNAL_ERROR,
+                details="Failed to initialize domain generation.",
+                retry_allowed=True
+            )
+            yield _format_sse("error", error_response.model_dump())
+            return
 
         yield _format_sse(
             "start",
@@ -647,147 +668,200 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
             },
         )
         
-        while retries < max_retries:
-            metrics.start_timer("llm")
-            metrics.increment_llm_call()
-            try:
-                suggestions = await GroqSuggestor().generate(request.description, requested_count, prompt_type)
-            except Exception as e:
-                metrics.add_error(f"LLM error: {str(e)}")
-                raise
-            finally:
-                metrics.stop_timer("llm")
-            
-            plain_domains = list(suggestions)
-            metrics.add_domains_generated(plain_domains)
+        try:
+            while retries < max_retries:
+                metrics.start_timer("llm")
+                metrics.increment_llm_call()
+                try:
+                    suggestions = await GroqSuggestor().generate(request.description, requested_count, prompt_type)
+                except DomainGeneratorException as e:
+                    metrics.add_error(f"LLM error: {str(e)}")
+                    metrics.stop_timer("llm")
+                    # Send user-friendly error to client
+                    error_response = ErrorResponse(
+                        code=e.code,
+                        message=e.user_message,
+                        details=e.details,
+                        retry_allowed=e.retry_allowed,
+                    )
+                    yield _format_sse("error", error_response.model_dump())
+                    return
+                except Exception as e:
+                    metrics.add_error(f"LLM error: {str(e)}")
+                    metrics.stop_timer("llm")
+                    error_response = create_error_response(
+                        ErrorCode.GENERATION_FAILED,
+                        details="An unexpected error occurred during domain generation.",
+                        retry_allowed=True
+                    )
+                    yield _format_sse("error", error_response.model_dump())
+                    return
+                finally:
+                    if metrics._timers.get("llm") is not None:
+                        metrics.stop_timer("llm")
+                
+                plain_domains = list(suggestions)
+                metrics.add_domains_generated(plain_domains)
 
-            domains_to_check = [
-                domain
-                for domain in plain_domains
-                if domain not in accumulated_lookup
-                or accumulated_lookup[domain].status is not DomainStatus.AVAILABLE
-            ]
+                domains_to_check = [
+                    domain
+                    for domain in plain_domains
+                    if domain not in accumulated_lookup
+                    or accumulated_lookup[domain].status is not DomainStatus.AVAILABLE
+                ]
 
-            if not domains_to_check:
+                if not domains_to_check:
+                    retries += 1
+                    metrics.increment_retry()
+                    await asyncio.sleep(0)
+                    continue
+
+                metrics.start_timer("worker")
+                metrics.increment_worker_job()
+                try:
+                    results = await enqueue_and_wait(domains_to_check)
+                except ServiceUnavailableError as e:
+                    metrics.stop_timer("worker")
+                    error_response = ErrorResponse(
+                        code=e.code,
+                        message=e.user_message,
+                        details=e.details,
+                        retry_allowed=True,
+                    )
+                    yield _format_sse("error", error_response.model_dump())
+                    return
+                except Exception as e:
+                    metrics.stop_timer("worker")
+                    print(f"[Stream] Worker error: {e}")
+                    error_response = create_error_response(
+                        ErrorCode.SERVICE_UNAVAILABLE,
+                        details="Domain validation service is temporarily unavailable.",
+                        retry_allowed=True
+                    )
+                    yield _format_sse("error", error_response.model_dump())
+                    return
+                finally:
+                    if metrics._timers.get("worker") is not None:
+                        metrics.stop_timer("worker")
+                
+                status_lookup = {
+                    item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
+                    for item in results
+                    if isinstance(item, dict)
+                }
+
+                now = datetime.datetime.now(datetime.UTC)
+
+                for domain in plain_domains:
+                    if domain not in domains_to_check and domain not in accumulated_lookup:
+                        # Domain was skipped because it exceeded caps earlier
+                        continue
+
+                    status_value = status_lookup.get(domain, "unknown")
+                    status_enum = map_worker_status_to_domain_status(status_value)
+
+                    suggestion = DomainSuggestion(
+                        domain=domain,
+                        tld=domain.split(".")[-1],
+                        status=status_enum,
+                        created_at=now,
+                        updated_at=now,
+                    )
+
+                    domains_to_store.append((domain, status_enum))
+                    metrics.add_domain_status(status_enum)
+                    
+                    try:
+                        await upsert_domain_in_db(domain, status_enum, suggestion_db.id)
+                    except Exception as e:
+                        print(f"[Stream] Failed to store domain {domain} immediately: {e}")
+
+                    existing = accumulated_lookup.get(domain)
+                    if existing:
+                        if (
+                            existing.status is not DomainStatus.AVAILABLE
+                            and status_enum is DomainStatus.AVAILABLE
+                        ):
+                            for idx, item in enumerate(accumulated):
+                                if item.domain == domain:
+                                    accumulated[idx] = suggestion
+                                    break
+                            accumulated_lookup[domain] = suggestion
+                            available_count += 1
+                            
+                            try:
+                                await upsert_domain_in_db(domain, status_enum, suggestion_db.id)
+                            except Exception as e:
+                                print(f"[Stream] Failed to update domain {domain} immediately: {e}")
+                            
+                            if not first_suggestion_sent:
+                                metrics.mark_first_suggestion()
+                                first_suggestion_sent = True
+                            
+                            yield _format_sse(
+                                "suggestions",
+                                {
+                                    "new": [],
+                                    "updates": [suggestion.model_dump(mode="json")],
+                                    "available_count": available_count,
+                                    "total": len(accumulated),
+                                },
+                            )
+                            await asyncio.sleep(0)
+                        continue
+
+                    if status_enum is DomainStatus.AVAILABLE and available_count >= requested_count:
+                        continue
+
+                    accumulated.append(suggestion)
+                    accumulated_lookup[domain] = suggestion
+                    if status_enum is DomainStatus.AVAILABLE:
+                        available_count += 1
+                    
+                    if not first_suggestion_sent:
+                        metrics.mark_first_suggestion()
+                        first_suggestion_sent = True
+                    
+                    yield _format_sse(
+                        "suggestions",
+                        {
+                            "new": [suggestion.model_dump(mode="json")],
+                            "updates": [],
+                            "available_count": available_count,
+                            "total": len(accumulated),
+                        },
+                    )
+                    await asyncio.sleep(0)
+
+                if available_count >= requested_count:
+                    break
+
                 retries += 1
                 metrics.increment_retry()
                 await asyncio.sleep(0)
-                continue
 
-            metrics.start_timer("worker")
-            metrics.increment_worker_job()
-            results = await enqueue_and_wait(domains_to_check)
-            metrics.stop_timer("worker")
             
-            status_lookup = {
-                item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
-                for item in results
-                if isinstance(item, dict)
-            }
+            asyncio.create_task(
+                metrics.save(suggestion_db.id, requested_count)
+            )
 
-            now = datetime.datetime.now(datetime.UTC)
-
-            for domain in plain_domains:
-                if domain not in domains_to_check and domain not in accumulated_lookup:
-                    # Domain was skipped because it exceeded caps earlier
-                    continue
-
-                status_value = status_lookup.get(domain, "unknown")
-                status_enum = map_worker_status_to_domain_status(status_value)
-
-                suggestion = DomainSuggestion(
-                    domain=domain,
-                    tld=domain.split(".")[-1],
-                    status=status_enum,
-                    created_at=now,
-                    updated_at=now,
-                )
-
-                domains_to_store.append((domain, status_enum))
-                metrics.add_domain_status(status_enum)
-                
-                try:
-                    await upsert_domain_in_db(domain, status_enum, suggestion_db.id)
-                except Exception as e:
-                    print(f"[Stream] Failed to store domain {domain} immediately: {e}")
-
-                existing = accumulated_lookup.get(domain)
-                if existing:
-                    if (
-                        existing.status is not DomainStatus.AVAILABLE
-                        and status_enum is DomainStatus.AVAILABLE
-                    ):
-                        for idx, item in enumerate(accumulated):
-                            if item.domain == domain:
-                                accumulated[idx] = suggestion
-                                break
-                        accumulated_lookup[domain] = suggestion
-                        available_count += 1
-                        
-                        try:
-                            await upsert_domain_in_db(domain, status_enum, suggestion_db.id)
-                        except Exception as e:
-                            print(f"[Stream] Failed to update domain {domain} immediately: {e}")
-                        
-                        if not first_suggestion_sent:
-                            metrics.mark_first_suggestion()
-                            first_suggestion_sent = True
-                        
-                        yield _format_sse(
-                            "suggestions",
-                            {
-                                "new": [],
-                                "updates": [suggestion.model_dump(mode="json")],
-                                "available_count": available_count,
-                                "total": len(accumulated),
-                            },
-                        )
-                        await asyncio.sleep(0)
-                    continue
-
-                if status_enum is DomainStatus.AVAILABLE and available_count >= requested_count:
-                    continue
-
-                accumulated.append(suggestion)
-                accumulated_lookup[domain] = suggestion
-                if status_enum is DomainStatus.AVAILABLE:
-                    available_count += 1
-                
-                if not first_suggestion_sent:
-                    metrics.mark_first_suggestion()
-                    first_suggestion_sent = True
-                
-                yield _format_sse(
-                    "suggestions",
-                    {
-                        "new": [suggestion.model_dump(mode="json")],
-                        "updates": [],
-                        "available_count": available_count,
-                        "total": len(accumulated),
-                    },
-                )
-                await asyncio.sleep(0)
-
-            if available_count >= requested_count:
-                break
-
-            retries += 1
-            metrics.increment_retry()
-            await asyncio.sleep(0)
-
-        
-        asyncio.create_task(
-            metrics.save(suggestion_db.id, requested_count)
-        )
-
-        yield _format_sse(
-            "complete",
-            {
-                "suggestions": [item.model_dump(mode="json") for item in accumulated],
-                "available_count": available_count,
-                "total": len(accumulated),
-            },
-        )
+            yield _format_sse(
+                "complete",
+                {
+                    "suggestions": [item.model_dump(mode="json") for item in accumulated],
+                    "available_count": available_count,
+                    "total": len(accumulated),
+                },
+            )
+            
+        except Exception as e:
+            print(f"[Stream] Unexpected error: {e}")
+            error_response = create_error_response(
+                ErrorCode.INTERNAL_ERROR,
+                details="An unexpected error occurred. Please try again.",
+                retry_allowed=True
+            )
+            yield _format_sse("error", error_response.model_dump())
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -811,10 +885,28 @@ async def enqueue_and_wait(domains: List[str]) -> List[dict[str, str]]:
     if not valid_domains:
         return results
 
-    try:
-        job = queue.enqueue("domain_checker.main.handle_domain_check", args=[valid_domains])
-    except Exception as exc:  # pragma: no cover - enqueue errors
-        raise HTTPException(status_code=503, detail="Failed to enqueue domain check job") from exc
+    # Retry logic for Redis/queue connection issues
+    max_enqueue_retries = 3
+    last_error = None
+    
+    for attempt in range(max_enqueue_retries):
+        try:
+            job = queue.enqueue("domain_checker.main.handle_domain_check", args=[valid_domains])
+            break  # Successfully enqueued
+        except RedisConnectionError as exc:
+            last_error = exc
+            print(f"[API] Redis connection error (attempt {attempt + 1}/{max_enqueue_retries}): {exc}")
+            if attempt < max_enqueue_retries - 1:
+                await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
+                continue
+            raise ServiceUnavailableError(details="Unable to connect to the domain validation service.")
+        except Exception as exc:
+            last_error = exc
+            print(f"[API] Enqueue error (attempt {attempt + 1}/{max_enqueue_retries}): {exc}")
+            if attempt < max_enqueue_retries - 1:
+                await asyncio.sleep(0.5 * (attempt + 1))
+                continue
+            raise ServiceUnavailableError(details="Failed to start domain validation.")
 
     timeout = settings.rq_job_timeout_seconds
     if timeout <= 0:
@@ -826,16 +918,16 @@ async def enqueue_and_wait(domains: List[str]) -> List[dict[str, str]]:
         return results
     except TimeoutError:
         print(f"[API] Job {job.id} timed out after {timeout}s")
-        # Return invalid status for domains that timed out
+        # Return unknown status for domains that timed out (they might still be valid)
         results.extend([
-            {"domain": domain, "status": "non conclusive"} for domain in valid_domains
+            {"domain": domain, "status": "unknown"} for domain in valid_domains
         ])
         return results
-    except RuntimeError as exc:  # pragma: no cover - job failures
+    except RuntimeError as exc:
         print(f"[API] Job {job.id} failed: {exc}")
-        # Return invalid status for domains that failed
+        # Return unknown status for domains that failed
         results.extend([
-            {"domain": domain, "status": "invalid"} for domain in valid_domains
+            {"domain": domain, "status": "unknown"} for domain in valid_domains
         ])
         return results
 

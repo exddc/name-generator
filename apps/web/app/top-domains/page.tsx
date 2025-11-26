@@ -29,6 +29,7 @@ import {
     Heart,
 } from 'lucide-react';
 import { useSession } from '@/lib/auth-client';
+import { toast } from '@/components/ui/sonner';
 
 // Components
 import { Card } from '@/components/ui/card';
@@ -209,13 +210,11 @@ export default function TopDomains() {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(
-                    errorData.detail ||
-                        `Failed to submit vote: ${response.statusText}`
-                );
+                const errorMessage = errorData.detail?.message || errorData.detail || 
+                    'Failed to submit vote';
+                toast.error(errorMessage);
+                return;
             }
-
-            const result = await response.json();
 
             setDomainVotes((prev) => {
                 const next = new Map(prev);
@@ -224,6 +223,7 @@ export default function TopDomains() {
             });
         } catch (error) {
             console.error('Failed to submit vote:', error);
+            toast.error('Failed to submit vote. Please try again.');
         } finally {
             setVotingDomain(null);
         }
@@ -235,6 +235,15 @@ export default function TopDomains() {
 
     const handleFavorite = async (domain: string) => {
         if (!session?.user?.id) {
+            toast.info('You need to be logged in to favorite domains', {
+                description: 'Sign in to save your favorite domain names.',
+                action: {
+                    label: 'Sign in',
+                    onClick: () => {
+                        router.push('/login');
+                    },
+                },
+            });
             return;
         }
 
@@ -265,12 +274,10 @@ export default function TopDomains() {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(
-                    errorData.detail ||
-                        `Failed to ${
-                            action === 'fav' ? 'favorite' : 'unfavorite'
-                        } domain: ${response.statusText}`
-                );
+                const errorMessage = errorData.detail?.message || errorData.detail || 
+                    `Failed to ${action === 'fav' ? 'favorite' : 'unfavorite'} domain`;
+                toast.error(errorMessage);
+                return;
             }
 
             // Update the domain's is_favorite status
@@ -281,8 +288,14 @@ export default function TopDomains() {
                         : d
                 )
             );
+            
+            // Show success toast
+            if (action === 'fav') {
+                toast.success(`Added ${domain} to favorites`);
+            }
         } catch (error) {
             console.error('Failed to toggle favorite:', error);
+            toast.error('Failed to update favorite. Please try again.');
         } finally {
             setFavoritingDomain(null);
         }
