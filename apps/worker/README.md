@@ -6,7 +6,7 @@ A scalable RQ worker service for checking domain name availability. Designed to 
 
 - **Multi-Worker Support**: Multiple workers can connect to the same Redis queue and atomically pick up jobs
 - **Internal Concurrency**: Each worker processes domains in parallel using a thread pool
-- **Idle Recheck**: Automatically rechecks stale domain statuses when workers are idle
+- **Idle Recheck**: Automatically rechecks stale domain statuses when workers are idle (uses Tortoise ORM, same as the API)
 - **Configurable**: All settings can be adjusted via environment variables
 
 ## Installation

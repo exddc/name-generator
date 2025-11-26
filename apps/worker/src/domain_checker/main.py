@@ -6,18 +6,19 @@ Includes idle recheck functionality to periodically refresh stale domain statuse
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, List
 
-import psycopg2
 from redis import Redis
 from rq import Queue, Worker
 from rq.job import Job
+from tortoise import Tortoise
 
-from .logic import check_domains
+from .logic import check_domains, DomainCheckResult
 
 
 # Redis configuration
@@ -45,6 +46,28 @@ ENABLE_IDLE_RECHECK = os.getenv("WORKER_ENABLE_IDLE_RECHECK", "true").lower() ==
 RECHECK_POLL_INTERVAL = int(os.getenv("WORKER_RECHECK_POLL_INTERVAL", "30"))
 
 
+def _get_database_url() -> str:
+    """Build database URL from environment variables."""
+    if DATABASE_URL:
+        return DATABASE_URL
+    return f"postgres://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+
+def _get_tortoise_config() -> dict:
+    """Get Tortoise ORM configuration for the worker."""
+    return {
+        "connections": {
+            "default": _get_database_url()
+        },
+        "apps": {
+            "models": {
+                "models": ["domain_checker.db_models"],
+                "default_connection": "default",
+            }
+        },
+    }
+
+
 def handle_domain_check(domains: list[str]) -> list[dict[str, str]]:
     """Process a batch of domains and return their availability status."""
     print(f"[Worker] Handling domain check for {len(domains)} domains: {domains[:5]}...")
@@ -63,101 +86,85 @@ def handle_domain_recheck(domains: list[str]) -> list[dict[str, str]]:
     print(f"[Worker] Rechecking {len(domains)} stale domains")
     results = check_domains(domains)
     
-    # Update the database with new statuses
+    # Update the database with new statuses using Tortoise ORM
     try:
-        _update_domain_statuses(results)
+        asyncio.run(_update_domain_statuses_async(results))
     except Exception as e:
         print(f"[Worker] Failed to update domain statuses in database: {e}")
     
     return [result.model_dump() for result in results]
 
 
-def _get_db_connection():
-    """Create a database connection for the recheck feature."""
-    if DATABASE_URL:
-        return psycopg2.connect(DATABASE_URL)
-    
-    return psycopg2.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        dbname=DB_NAME,
-    )
-
-
-def _update_domain_statuses(results: list) -> None:
-    """Update domain statuses in the database after recheck."""
+async def _update_domain_statuses_async(results: List[DomainCheckResult]) -> None:
+    """Update domain statuses in the database after recheck using Tortoise ORM."""
     if not results:
         return
     
-    conn = None
+    from domain_checker.db_models import Domain
+    
+    await Tortoise.init(config=_get_tortoise_config())
+    
     try:
-        conn = _get_db_connection()
-        cursor = conn.cursor()
-        
         now = datetime.now(timezone.utc)
+        updated_count = 0
         
         for result in results:
-            domain = result.domain
-            status = result.status
-            
             # Map worker status to API status
-            if status == "free":
+            if result.status == "free":
                 db_status = "available"
-            elif status == "registered":
+            elif result.status == "registered":
                 db_status = "registered"
             else:
                 db_status = "unknown"
             
-            cursor.execute(
-                """
-                UPDATE domains 
-                SET status = %s, last_checked = %s, updated_at = %s
-                WHERE domain = %s
-                """,
-                (db_status, now, now, domain)
+            # Update using Tortoise ORM
+            updated = await Domain.filter(domain=result.domain).update(
+                status=db_status,
+                last_checked=now,
+                updated_at=now,
             )
+            if updated:
+                updated_count += 1
         
-        conn.commit()
-        print(f"[Worker] Updated {len(results)} domain statuses in database")
-    except Exception as e:
-        print(f"[Worker] Database update error: {e}")
-        if conn:
-            conn.rollback()
-        raise
+        print(f"[Worker] Updated {updated_count} domain statuses in database")
     finally:
-        if conn:
-            conn.close()
+        await Tortoise.close_connections()
+
+
+async def _get_stale_domains_async(batch_size: int) -> list[str]:
+    """Fetch domains that haven't been checked in RECHECK_INTERVAL_DAYS days using Tortoise ORM."""
+    from domain_checker.db_models import Domain
+    
+    await Tortoise.init(config=_get_tortoise_config())
+    
+    try:
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=RECHECK_INTERVAL_DAYS)
+        
+        # Get domains with null last_checked or older than cutoff
+        stale_domains = await Domain.filter(
+            last_checked__isnull=True
+        ).order_by("last_checked").limit(batch_size).values_list("domain", flat=True)
+        
+        if len(stale_domains) < batch_size:
+            # Also get domains with old last_checked
+            remaining = batch_size - len(stale_domains)
+            old_domains = await Domain.filter(
+                last_checked__lt=cutoff_date
+            ).order_by("last_checked").limit(remaining).values_list("domain", flat=True)
+            stale_domains = list(stale_domains) + list(old_domains)
+        
+        return list(stale_domains)
+    finally:
+        await Tortoise.close_connections()
 
 
 def _get_stale_domains(batch_size: int) -> list[str]:
     """Fetch domains that haven't been checked in RECHECK_INTERVAL_DAYS days."""
-    conn = None
     try:
-        conn = _get_db_connection()
-        cursor = conn.cursor()
-        
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=RECHECK_INTERVAL_DAYS)
-        
-        cursor.execute(
-            """
-            SELECT domain FROM domains 
-            WHERE last_checked IS NULL OR last_checked < %s
-            ORDER BY last_checked ASC NULLS FIRST
-            LIMIT %s
-            """,
-            (cutoff_date, batch_size)
-        )
-        
-        rows = cursor.fetchall()
-        return [row[0] for row in rows]
+        return asyncio.run(_get_stale_domains_async(batch_size))
     except Exception as e:
         print(f"[Worker] Failed to fetch stale domains: {e}")
         return []
-    finally:
-        if conn:
-            conn.close()
 
 
 def _is_queue_idle(redis_conn: Redis, queue_name: str) -> bool:

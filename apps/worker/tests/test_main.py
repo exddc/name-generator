@@ -1,7 +1,7 @@
 # Tests for the domain_checker service
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from domain_checker.logic import (
     check_domains,
     check_domain,
@@ -126,27 +126,29 @@ class TestHandleDomainCheck:
 class TestHandleDomainRecheck:
     """Tests for the recheck job handler."""
     
-    @patch("domain_checker.main._update_domain_statuses")
+    @patch("domain_checker.main.asyncio.run")
     @patch("domain_checker.main.check_domains")
-    def test_updates_database(self, mock_check, mock_update):
+    def test_updates_database(self, mock_check, mock_asyncio_run):
         mock_results = [
             DomainCheckResult(domain="test.com", status="free"),
         ]
         mock_check.return_value = mock_results
+        mock_asyncio_run.return_value = None
         
         result = handle_domain_recheck(["test.com"])
         
-        mock_update.assert_called_once_with(mock_results)
+        # Verify asyncio.run was called (to update database)
+        mock_asyncio_run.assert_called_once()
         assert result == [{"domain": "test.com", "status": "free"}]
     
-    @patch("domain_checker.main._update_domain_statuses")
+    @patch("domain_checker.main.asyncio.run")
     @patch("domain_checker.main.check_domains")
-    def test_handles_database_error_gracefully(self, mock_check, mock_update):
+    def test_handles_database_error_gracefully(self, mock_check, mock_asyncio_run):
         mock_results = [
             DomainCheckResult(domain="test.com", status="free"),
         ]
         mock_check.return_value = mock_results
-        mock_update.side_effect = Exception("DB connection failed")
+        mock_asyncio_run.side_effect = Exception("DB connection failed")
         
         # Should not raise, just log the error
         result = handle_domain_recheck(["test.com"])
