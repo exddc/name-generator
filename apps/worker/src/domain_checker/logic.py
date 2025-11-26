@@ -13,6 +13,9 @@ from pydantic import BaseModel
 
 
 DNS_TIMEOUT = float(os.getenv("DOMAIN_CHECKER_DNS_TIMEOUT", "3.0"))
+# Maximum concurrent domain checks within a single worker
+# Adjust based on system resources (DNS/WHOIS are I/O bound)
+MAX_CONCURRENT_CHECKS = int(os.getenv("WORKER_MAX_CONCURRENT_CHECKS", "10"))
 
 
 FREE_KEYWORDS = [
@@ -45,15 +48,52 @@ class DomainCheckResult(BaseModel):
     status: str
 
 
+def _check_single_domain(domain: str) -> DomainCheckResult:
+    """Check a single domain and return a result. Used for concurrent execution."""
+    try:
+        status = check_domain(domain)
+        return DomainCheckResult(domain=domain, status=status)
+    except Exception as e:
+        print(f"[Worker] Error checking domain '{domain}': {e}")
+        return DomainCheckResult(domain=domain, status="invalid")
+
+
 def check_domains(domains: Sequence[str]) -> List[DomainCheckResult]:
+    """
+    Check multiple domains concurrently using a thread pool.
+    
+    Uses ThreadPoolExecutor to parallelize I/O-bound DNS and WHOIS lookups.
+    The number of concurrent checks is controlled by WORKER_MAX_CONCURRENT_CHECKS.
+    """
+    if not domains:
+        return []
+    
+    # For a single domain, skip the overhead of threading
+    if len(domains) == 1:
+        return [_check_single_domain(domains[0])]
+    
     results: List[DomainCheckResult] = []
-    for domain in domains:
-        try:
-            status = check_domain(domain)
-            results.append(DomainCheckResult(domain=domain, status=status))
-        except Exception as e:
-            print(f"[Worker] Error checking domain '{domain}': {e}")
-            results.append(DomainCheckResult(domain=domain, status="invalid"))
+    max_workers = min(MAX_CONCURRENT_CHECKS, len(domains))
+    
+    print(f"[Worker] Checking {len(domains)} domains with {max_workers} concurrent workers")
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all domain checks
+        future_to_domain = {
+            executor.submit(_check_single_domain, domain): domain
+            for domain in domains
+        }
+        
+        # Collect results as they complete
+        for future in concurrent.futures.as_completed(future_to_domain):
+            domain = future_to_domain[future]
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                print(f"[Worker] Unexpected error for domain '{domain}': {e}")
+                results.append(DomainCheckResult(domain=domain, status="invalid"))
+    
     return results
 
 

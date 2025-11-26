@@ -38,13 +38,35 @@ services:
       context: ./apps/worker
     profiles: [worker]
     environment:
+      # Redis configuration
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       RQ_QUEUE: ${RQ_QUEUE:-domain_checks}
       DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
+      # Concurrency configuration
+      WORKER_MAX_CONCURRENT_CHECKS: ${WORKER_MAX_CONCURRENT_CHECKS:-10}
+      # Database configuration for idle recheck feature
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-domain_generator}
+      # Idle recheck configuration
+      WORKER_ENABLE_IDLE_RECHECK: ${WORKER_ENABLE_IDLE_RECHECK:-true}
+      WORKER_IDLE_THRESHOLD_SECONDS: ${WORKER_IDLE_THRESHOLD_SECONDS:-60}
+      WORKER_RECHECK_INTERVAL_DAYS: ${WORKER_RECHECK_INTERVAL_DAYS:-7}
+      WORKER_RECHECK_BATCH_SIZE: ${WORKER_RECHECK_BATCH_SIZE:-50}
+      WORKER_RECHECK_POLL_INTERVAL: ${WORKER_RECHECK_POLL_INTERVAL:-30}
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - domain-generator-network
+    # Scale workers with: docker-compose --profile worker up --scale worker=3
+    deploy:
+      mode: replicated
+      replicas: 1
 
   api:
     build:
