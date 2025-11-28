@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { magicLink } from "better-auth/plugins";
+import { otp } from "better-auth/plugins";
 import { admin } from "better-auth/plugins";
 import { Pool } from "pg";
 import { Resend } from "resend";
@@ -28,6 +29,18 @@ const buildMagicLinkHtml = (url: string) =>
 
 const buildMagicLinkText = (url: string) =>
     `Use the link below to finish signing in to Domain Generator:\n\n${url}\n\nThis link will expire shortly.`;
+
+const buildOTPEmailHtml = (code: string) =>
+    `
+<p>Hi there,</p>
+<p>Your 6-digit verification code for Domain Generator is:</p>
+<p style="font-size: 24px; font-weight: bold; letter-spacing: 4px; text-align: center; padding: 20px; background-color: #f3f4f6; border-radius: 8px; margin: 20px 0;">${code}</p>
+<p>This code will expire shortly. If you didn't request it, feel free to ignore this email.</p>
+<p>Alternatively, you can click the magic link in this email to sign in.</p>
+`.trim();
+
+const buildOTPEmailText = (code: string) =>
+    `Your 6-digit verification code for Domain Generator is: ${code}\n\nThis code will expire shortly. If you didn't request it, feel free to ignore this email.\n\nAlternatively, you can use the magic link in this email to sign in.`;
 
 export const auth = betterAuth({
     database: pool,
@@ -68,6 +81,54 @@ export const auth = betterAuth({
                     });
                 } catch (error) {
                     console.error("Error in sendMagicLink:", error);
+                    throw error;
+                }
+            },
+        }),
+        otp({
+            async sendOTP({ email, code, url }) {
+                try {
+                    if (!resendClient) {
+                        console.warn(
+                            "RESEND_API_KEY is not set. Falling back to console logging the OTP code."
+                        );
+                        console.log("\n========================================");
+                        console.log("🔢 OTP CODE REQUEST");
+                        console.log("========================================");
+                        console.log(`Email: ${email}`);
+                        console.log(`OTP Code: ${code}`);
+                        console.log(`Magic Link URL: ${url}`);
+                        console.log(
+                            `\n📧 Your 6-digit code is: ${code}`
+                        );
+                        console.log(`   Or use this URL: ${url}`);
+                        console.log("========================================\n");
+                        return;
+                    }
+
+                    // Send email with both OTP code and magic link
+                    const htmlContent = `
+${buildOTPEmailHtml(code)}
+<hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;">
+<p>Or click the secure link below to finish signing in:</p>
+<p><a href="${url}">Sign in to Domain Generator</a></p>
+`.trim();
+
+                    const textContent = `
+${buildOTPEmailText(code)}
+
+Or use this link to sign in: ${url}
+`.trim();
+
+                    await resendClient.emails.send({
+                        from: `Domain Generator <${resendFromEmail}>`,
+                        to: email,
+                        subject: "Sign in to Domain Generator",
+                        html: htmlContent,
+                        text: textContent,
+                    });
+                } catch (error) {
+                    console.error("Error in sendOTP:", error);
                     throw error;
                 }
             },
