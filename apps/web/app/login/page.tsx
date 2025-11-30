@@ -26,10 +26,9 @@ export default function Login() {
         setError(null);
 
         try {
-            // Send OTP code (which includes magic link in the email)
-            const result = await authClient.signIn.otp({
+            const result = await authClient.emailOtp.sendVerificationOtp({
                 email,
-                callbackURL: '/',
+                type: 'sign-in',
             });
 
             console.log('OTP request result:', result);
@@ -52,14 +51,12 @@ export default function Login() {
         setError(null);
 
         try {
-            const result = await authClient.signIn.otp.verify({
+            const result = await authClient.signIn.emailOtp({
                 email,
-                code: otpCode,
-                callbackURL: '/',
+                otp: otpCode,
             });
 
             console.log('OTP verification result:', result);
-            // If successful, the user will be redirected automatically
         } catch (err) {
             console.error('OTP verification error:', err);
             const errorMessage =
@@ -97,7 +94,8 @@ export default function Login() {
                             Check your email
                         </h2>
                         <p className="text-base text-gray-600 text-balance">
-                            We just sent a secure login link and a 6-digit code to{' '}
+                            We just sent a secure login link and a 6-digit code
+                            to{' '}
                             <span className="font-medium text-gray-900">
                                 {email}
                             </span>
@@ -113,10 +111,11 @@ export default function Login() {
                                         Check your inbox
                                     </p>
                                     <p className="text-sm text-green-800">
-                                        The link expires quickly, so open the email
-                                        and click it within the next few minutes.
-                                        Look in your spam or promotions folders if
-                                        it doesn&apos;t arrive right away.
+                                        The link expires quickly, so open the
+                                        email and click it within the next few
+                                        minutes. Look in your spam or promotions
+                                        folders if it doesn&apos;t arrive right
+                                        away.
                                     </p>
                                 </div>
                             ) : (
@@ -129,15 +128,18 @@ export default function Login() {
                                         <code className="rounded bg-blue-100 px-1 py-0.5 text-xs font-semibold uppercase tracking-wide text-blue-900">
                                             bun dev
                                         </code>{' '}
-                                        for the printed magic link URL and OTP code. Copy and
-                                        paste the URL into your browser or use the code below.
+                                        for the printed magic link URL and OTP
+                                        code. Copy and paste the URL into your
+                                        browser or use the code below.
                                     </p>
                                 </div>
                             )}
-                            
+
                             <div className="flex items-center gap-4">
                                 <div className="flex-1 border-t border-gray-200"></div>
-                                <span className="text-sm text-gray-500">or</span>
+                                <span className="text-sm text-gray-500">
+                                    or
+                                </span>
                                 <div className="flex-1 border-t border-gray-200"></div>
                             </div>
 
@@ -170,7 +172,9 @@ export default function Login() {
                                     maxLength={6}
                                     value={otpCode}
                                     onChange={(e) => {
-                                        const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                                        const value = e.target.value
+                                            .replace(/\D/g, '')
+                                            .slice(0, 6);
                                         setOtpCode(value);
                                     }}
                                     required
@@ -185,17 +189,23 @@ export default function Login() {
 
                             {error && (
                                 <div className="rounded-2xl border border-red-200 bg-red-50/80 p-4">
-                                    <p className="text-sm text-red-800">{error}</p>
+                                    <p className="text-sm text-red-800">
+                                        {error}
+                                    </p>
                                 </div>
                             )}
 
                             <div className="flex gap-3">
                                 <Button
                                     type="submit"
-                                    disabled={isVerifying || otpCode.length !== 6}
+                                    disabled={
+                                        isVerifying || otpCode.length !== 6
+                                    }
                                     className="flex-1"
                                 >
-                                    {isVerifying ? 'Verifying...' : 'Verify code'}
+                                    {isVerifying
+                                        ? 'Verifying...'
+                                        : 'Verify code'}
                                 </Button>
                                 <Button
                                     type="button"
