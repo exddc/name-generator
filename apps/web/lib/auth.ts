@@ -30,7 +30,7 @@ const buildLoginEmailHtml = (url: string, code: string) =>
 `.trim();
 
 const buildLoginEmailText = (url: string, code: string) =>
-    `Use the link below to sign in to Domain Generator:\n\n${url}\n\nThis code and link will expire shortly.`;
+    `Use the link below to sign in to Domain Generator:\n\n${url}\n\nAlternatively, you can use the code below to sign in:\n\n${code}\n\nThis code and link will expire shortly.`;
 
 
 

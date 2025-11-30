@@ -19,7 +19,6 @@ export default function Login() {
     const [useCode, setUseCode] = useState(false);
     const [otpCode, setOtpCode] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
-    const isProduction = process.env.NODE_ENV === 'production';
     const router = useRouter();
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -108,35 +107,17 @@ export default function Login() {
 
                     {!useCode ? (
                         <div className="w-full space-y-4">
-                            {isProduction ? (
-                                <div className="space-y-2 rounded-2xl border border-green-200 bg-green-50/80 p-4 text-left">
-                                    <p className="text-sm font-semibold text-green-900">
-                                        Check your inbox
-                                    </p>
-                                    <p className="text-sm text-green-800">
-                                        The link expires quickly, so open the
-                                        email and click it within the next few
-                                        minutes. Look in your spam or promotions
-                                        folders if it doesn&apos;t arrive right
-                                        away.
-                                    </p>
-                                </div>
-                            ) : (
-                                <div className="space-y-2 rounded-2xl border border-blue-200 bg-blue-50/80 p-4 text-left">
-                                    <p className="text-sm font-semibold text-blue-900">
-                                        Development mode
-                                    </p>
-                                    <p className="text-sm text-blue-800">
-                                        Check the terminal running{' '}
-                                        <code className="rounded bg-blue-100 px-1 py-0.5 text-xs font-semibold uppercase tracking-wide text-blue-900">
-                                            bun dev
-                                        </code>{' '}
-                                        for the printed magic link URL and OTP
-                                        code. Copy and paste the URL into your
-                                        browser or use the code below.
-                                    </p>
-                                </div>
-                            )}
+                            <div className="space-y-2 rounded-2xl border border-green-200 bg-green-50/80 p-4 text-left">
+                                <p className="text-sm font-semibold text-green-900">
+                                    Check your inbox
+                                </p>
+                                <p className="text-sm text-green-800">
+                                    The link expires quickly, so open the email
+                                    and click it within the next few minutes.
+                                    Look in your spam or promotions folders if
+                                    it doesn&apos;t arrive right away.
+                                </p>
+                            </div>
 
                             <div className="flex items-center gap-4">
                                 <div className="flex-1 border-t border-gray-200"></div>
