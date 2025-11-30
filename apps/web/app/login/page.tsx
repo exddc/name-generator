@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { authClient } from '@/lib/auth-client';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 // Components
 import { Card } from '@/components/ui/card';
@@ -15,7 +16,10 @@ export default function Login() {
     const [isLoading, setIsLoading] = useState(false);
     const [isSent, setIsSent] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const isProduction = process.env.NODE_ENV === 'production';
+    const [useCode, setUseCode] = useState(false);
+    const [otpCode, setOtpCode] = useState('');
+    const [isVerifying, setIsVerifying] = useState(false);
+    const router = useRouter();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -23,22 +27,47 @@ export default function Login() {
         setError(null);
 
         try {
-            const result = await authClient.signIn.magicLink({
+            const result = await authClient.emailOtp.sendVerificationOtp({
                 email,
-                callbackURL: '/',
+                type: 'sign-in',
             });
 
-            console.log('Magic link request result:', result);
+            console.log('OTP request result:', result);
             setIsSent(true);
         } catch (err) {
-            console.error('Magic link error:', err);
+            console.error('Login error:', err);
             const errorMessage =
                 err instanceof Error
                     ? err.message
-                    : 'Failed to send magic link. Please check the server console for details.';
+                    : 'Failed to send login credentials. Please check the server console for details.';
             setError(errorMessage);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleVerifyOTP = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsVerifying(true);
+        setError(null);
+
+        try {
+            const result = await authClient.signIn.emailOtp({
+                email,
+                otp: otpCode,
+            });
+
+            console.log('OTP verification result:', result);
+            router.push('/');
+        } catch (err) {
+            console.error('OTP verification error:', err);
+            const errorMessage =
+                err instanceof Error
+                    ? err.message
+                    : 'Invalid code. Please try again.';
+            setError(errorMessage);
+        } finally {
+            setIsVerifying(false);
         }
     };
 
@@ -64,19 +93,20 @@ export default function Login() {
 
                     <div className="space-y-2">
                         <h2 className="text-3xl font-semibold tracking-tight">
-                            Magic link sent
+                            Check your email
                         </h2>
                         <p className="text-base text-gray-600 text-balance">
-                            We just sent a secure login link to{' '}
+                            We just sent a secure login link and a 6-digit code
+                            to{' '}
                             <span className="font-medium text-gray-900">
                                 {email}
                             </span>
-                            . Follow it to finish signing in.
+                            .
                         </p>
                     </div>
 
-                    <div className="w-full">
-                        {isProduction ? (
+                    {!useCode ? (
+                        <div className="w-full space-y-4">
                             <div className="space-y-2 rounded-2xl border border-green-200 bg-green-50/80 p-4 text-left">
                                 <p className="text-sm font-semibold text-green-900">
                                     Check your inbox
@@ -88,33 +118,91 @@ export default function Login() {
                                     it doesn&apos;t arrive right away.
                                 </p>
                             </div>
-                        ) : (
-                            <div className="space-y-2 rounded-2xl border border-blue-200 bg-blue-50/80 p-4 text-left">
-                                <p className="text-sm font-semibold text-blue-900">
-                                    Development mode
-                                </p>
-                                <p className="text-sm text-blue-800">
-                                    Check the terminal running{' '}
-                                    <code className="rounded bg-blue-100 px-1 py-0.5 text-xs font-semibold uppercase tracking-wide text-blue-900">
-                                        bun dev
-                                    </code>{' '}
-                                    for the printed magic link URL. Copy and
-                                    paste it into your browser to continue.
+
+                            <div className="flex items-center gap-4">
+                                <div className="flex-1 border-t border-gray-200"></div>
+                                <span className="text-sm text-gray-500">
+                                    or
+                                </span>
+                                <div className="flex-1 border-t border-gray-200"></div>
+                            </div>
+
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full"
+                                onClick={() => setUseCode(true)}
+                            >
+                                Enter 6-digit code instead
+                            </Button>
+                        </div>
+                    ) : (
+                        <form
+                            onSubmit={handleVerifyOTP}
+                            className="w-full space-y-4"
+                        >
+                            <div className="space-y-2">
+                                <Input
+                                    id="otp-code"
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]{6}"
+                                    maxLength={6}
+                                    value={otpCode}
+                                    onChange={(e) => {
+                                        const value = e.target.value
+                                            .replace(/\D/g, '')
+                                            .slice(0, 6);
+                                        setOtpCode(value);
+                                    }}
+                                    required
+                                    disabled={isVerifying}
+                                    placeholder="000000"
+                                    className="h-12 text-center text-2xl tracking-widest font-mono"
+                                />
+                                <p className="text-xs text-gray-500">
+                                    Enter the 6-digit code sent to your email
                                 </p>
                             </div>
-                        )}
-                    </div>
+
+                            {error && (
+                                <div className="rounded-2xl border border-red-200 bg-red-50/80 p-4">
+                                    <p className="text-sm text-red-800">
+                                        {error}
+                                    </p>
+                                </div>
+                            )}
+
+                            <div className="flex gap-3">
+                                <Button
+                                    type="submit"
+                                    disabled={
+                                        isVerifying || otpCode.length !== 6
+                                    }
+                                    className="flex-1"
+                                >
+                                    {isVerifying
+                                        ? 'Verifying...'
+                                        : 'Verify code'}
+                                </Button>
+                            </div>
+                        </form>
+                    )}
 
                     <div className="flex w-full flex-col gap-3">
                         <Button
                             type="button"
+                            variant="outline"
                             className="w-full"
                             onClick={() => {
                                 setIsSent(false);
                                 setEmail('');
+                                setUseCode(false);
+                                setOtpCode('');
+                                setError(null);
                             }}
                         >
-                            Send another link
+                            Send another email
                         </Button>
                         <Link
                             href="/"
@@ -136,8 +224,8 @@ export default function Login() {
                         Sign in to continue
                     </h1>
                     <p className="mt-3 text-sm text-gray-600 text-balance">
-                        Enter your email address and we&apos;ll send you a magic
-                        link. No passwords, just one click.
+                        Enter your email address and we&apos;ll send you a link
+                        to login. No passwords needed.
                     </p>
                 </div>
 
@@ -176,7 +264,7 @@ export default function Login() {
                         disabled={isLoading || !email}
                         className="w-full"
                     >
-                        {isLoading ? 'Sending...' : 'Send magic link'}
+                        {isLoading ? 'Sending...' : 'Send login code'}
                     </Button>
                 </form>
 

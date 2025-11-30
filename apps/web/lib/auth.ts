@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { magicLink } from "better-auth/plugins";
+import { emailOTP } from "better-auth/plugins";
 import { admin } from "better-auth/plugins";
 import { Pool } from "pg";
 import { Resend } from "resend";
@@ -18,16 +19,20 @@ const resendFromEmail =
     process.env.RESEND_FROM_EMAIL || "magic@updates.timoweiss.me";
 const resendClient = resendApiKey ? new Resend(resendApiKey) : null;
 
-const buildMagicLinkHtml = (url: string) =>
+const buildLoginEmailHtml = (url: string, code: string) =>
     `
 <p>Hi there,</p>
-<p>Click the secure link below to finish signing in to Domain Generator:</p>
-<p><a href="${url}">Sign in to Domain Generator</a></p>
-<p>This link will expire shortly. If you didn't request it, feel free to ignore this email.</p>
+<p>Click the link below to sign in to Domain Generator:</p>
+<p><a href="${url}">Login to Domain Generator</a></p>
+<p>Alternatively, you can use the code below to sign in:</p>
+<p style="font-size: 24px; font-weight: bold; letter-spacing: 4px; text-align: center; padding: 20px; background-color: #f3f4f6; border-radius: 8px; margin: 20px 0;">${code}</p>
+<p>This code and link will expire shortly. If you didn't request it, feel free to ignore this email.</p>
 `.trim();
 
-const buildMagicLinkText = (url: string) =>
-    `Use the link below to finish signing in to Domain Generator:\n\n${url}\n\nThis link will expire shortly.`;
+const buildLoginEmailText = (url: string, code: string) =>
+    `Use the link below to sign in to Domain Generator:\n\n${url}\n\nAlternatively, you can use the code below to sign in:\n\n${code}\n\nThis code and link will expire shortly.`;
+
+
 
 export const auth = betterAuth({
     database: pool,
@@ -63,8 +68,8 @@ export const auth = betterAuth({
                         from: `Domain Generator <${resendFromEmail}>`,
                         to: email,
                         subject: "Sign in to Domain Generator",
-                        html: buildMagicLinkHtml(url),
-                        text: buildMagicLinkText(url),
+                        html: `<p>Click to sign in: <a href="${url}">${url}</a></p>`,
+                        text: `Click to sign in: ${url}`,
                     });
                 } catch (error) {
                     console.error("Error in sendMagicLink:", error);
@@ -72,7 +77,43 @@ export const auth = betterAuth({
                 }
             },
         }),
+        emailOTP({
+            async sendVerificationOTP({ email, otp, type }) {
+                console.log(`sendVerificationOTP called for ${email}`);
+                try {
+                    if (!resendClient || process.env.NODE_ENV === "development") {
+                        if (!resendClient) {
+                            console.warn(
+                                "RESEND_API_KEY is not set. Falling back to console logging the OTP code."
+                            );
+                        }
+                        console.log("\n========================================");
+                        console.log("🔢 OTP CODE REQUEST");
+                        console.log("========================================");
+                        console.log(`Email: ${email}`);
+                        console.log(`OTP Code: ${otp}`);
+                        console.log(
+                            `\n📧 Your 6-digit code is: ${otp}`
+                        );
+                        console.log("========================================\n");
+                        if (!resendClient) return;
+                    }
+
+                    const url = `${process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL || "http://localhost:3000"}/login?email=${encodeURIComponent(email)}&otp=${otp}`;
+
+                    await resendClient.emails.send({
+                        from: `Domain Generator <${resendFromEmail}>`,
+                        to: email,
+                        subject: "Sign in to Domain Generator",
+                        html: buildLoginEmailHtml(url, otp),
+                        text: buildLoginEmailText(url, otp),
+                    });
+                } catch (error) {
+                    console.error("Error in sendVerificationOTP:", error);
+                    throw error;
+                }
+            },
+        }),
         admin(),
     ],
 });
-
