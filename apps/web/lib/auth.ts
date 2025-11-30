@@ -19,27 +19,20 @@ const resendFromEmail =
     process.env.RESEND_FROM_EMAIL || "magic@updates.timoweiss.me";
 const resendClient = resendApiKey ? new Resend(resendApiKey) : null;
 
-const buildMagicLinkHtml = (url: string) =>
+const buildLoginEmailHtml = (url: string, code: string) =>
     `
 <p>Hi there,</p>
-<p>Click the secure link below to finish signing in to Domain Generator:</p>
-<p><a href="${url}">Sign in to Domain Generator</a></p>
-<p>This link will expire shortly. If you didn't request it, feel free to ignore this email.</p>
-`.trim();
-
-const buildMagicLinkText = (url: string) =>
-    `Use the link below to finish signing in to Domain Generator:\n\n${url}\n\nThis link will expire shortly.`;
-
-const buildOTPEmailHtml = (code: string) =>
-    `
-<p>Hi there,</p>
-<p>Your 6-digit verification code for Domain Generator is:</p>
+<p>Click the link below to sign in to Domain Generator:</p>
+<p><a href="${url}">Login to Domain Generator</a></p>
+<p>Alternatively, you can use the code below to sign in:</p>
 <p style="font-size: 24px; font-weight: bold; letter-spacing: 4px; text-align: center; padding: 20px; background-color: #f3f4f6; border-radius: 8px; margin: 20px 0;">${code}</p>
-<p>This code will expire shortly. If you didn't request it, feel free to ignore this email.</p>
+<p>This code and link will expire shortly. If you didn't request it, feel free to ignore this email.</p>
 `.trim();
 
-const buildOTPEmailText = (code: string) =>
-    `Your 6-digit verification code for Domain Generator is: ${code}\n\nThis code will expire shortly. If you didn't request it, feel free to ignore this email.`;
+const buildLoginEmailText = (url: string, code: string) =>
+    `Use the link below to sign in to Domain Generator:\n\n${url}\n\nThis code and link will expire shortly.`;
+
+
 
 export const auth = betterAuth({
     database: pool,
@@ -75,8 +68,8 @@ export const auth = betterAuth({
                         from: `Domain Generator <${resendFromEmail}>`,
                         to: email,
                         subject: "Sign in to Domain Generator",
-                        html: buildMagicLinkHtml(url),
-                        text: buildMagicLinkText(url),
+                        html: `<p>Click to sign in: <a href="${url}">${url}</a></p>`,
+                        text: `Click to sign in: ${url}`,
                     });
                 } catch (error) {
                     console.error("Error in sendMagicLink:", error);
@@ -106,13 +99,14 @@ export const auth = betterAuth({
                         if (!resendClient) return;
                     }
 
-                    // Send email with OTP code
+                    const url = `${process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL || "http://localhost:3000"}/login?email=${encodeURIComponent(email)}&otp=${otp}`;
+
                     await resendClient.emails.send({
                         from: `Domain Generator <${resendFromEmail}>`,
                         to: email,
                         subject: "Sign in to Domain Generator",
-                        html: buildOTPEmailHtml(otp),
-                        text: buildOTPEmailText(otp),
+                        html: buildLoginEmailHtml(url, otp),
+                        text: buildLoginEmailText(url, otp),
                     });
                 } catch (error) {
                     console.error("Error in sendVerificationOTP:", error);

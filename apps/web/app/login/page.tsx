@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { authClient } from '@/lib/auth-client';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 // Components
 import { Card } from '@/components/ui/card';
@@ -19,6 +20,7 @@ export default function Login() {
     const [otpCode, setOtpCode] = useState('');
     const [isVerifying, setIsVerifying] = useState(false);
     const isProduction = process.env.NODE_ENV === 'production';
+    const router = useRouter();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -57,6 +59,7 @@ export default function Login() {
             });
 
             console.log('OTP verification result:', result);
+            router.push('/');
         } catch (err) {
             console.error('OTP verification error:', err);
             const errorMessage =
@@ -99,7 +102,7 @@ export default function Login() {
                             <span className="font-medium text-gray-900">
                                 {email}
                             </span>
-                            . Choose how you'd like to sign in.
+                            .
                         </p>
                     </div>
 
@@ -158,12 +161,6 @@ export default function Login() {
                             className="w-full space-y-4"
                         >
                             <div className="space-y-2">
-                                <label
-                                    htmlFor="otp-code"
-                                    className="block text-sm font-medium text-gray-900"
-                                >
-                                    6-digit code
-                                </label>
                                 <Input
                                     id="otp-code"
                                     type="text"
@@ -207,18 +204,6 @@ export default function Login() {
                                         ? 'Verifying...'
                                         : 'Verify code'}
                                 </Button>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => {
-                                        setUseCode(false);
-                                        setOtpCode('');
-                                        setError(null);
-                                    }}
-                                    disabled={isVerifying}
-                                >
-                                    Use link instead
-                                </Button>
                             </div>
                         </form>
                     )}
@@ -236,7 +221,7 @@ export default function Login() {
                                 setError(null);
                             }}
                         >
-                            Send another code
+                            Send another email
                         </Button>
                         <Link
                             href="/"
@@ -258,8 +243,8 @@ export default function Login() {
                         Sign in to continue
                     </h1>
                     <p className="mt-3 text-sm text-gray-600 text-balance">
-                        Enter your email address and we&apos;ll send you a magic
-                        link and a 6-digit code. No passwords needed.
+                        Enter your email address and we&apos;ll send you a link
+                        to login. No passwords needed.
                     </p>
                 </div>
 
@@ -304,7 +289,7 @@ export default function Login() {
 
                 <div className="text-center text-sm text-gray-500">
                     By continuing you agree to receive a one-time sign-in link
-                    and code to the email above.
+                    to the email above.
                 </div>
 
                 <div className="text-center">
