@@ -7,6 +7,7 @@ import './globals.css';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Public_Sans, Manrope } from 'next/font/google';
+import { Toaster } from '@/components/ui/sonner';
 
 const publicSans = Public_Sans({
     variable: '--font-heading',
@@ -89,6 +90,7 @@ export default function RootLayout({
                     </main>
                     <Footer />
                 </PlausibleProvider>
+                <Toaster position="bottom-right" richColors closeButton />
             </body>
         </html>
     );

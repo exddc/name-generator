@@ -1,15 +1,16 @@
 'use client';
 
 // Libraries
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Domain, DomainStatus, StreamMessage } from '@/lib/types';
+import { Domain, DomainStatus, StreamMessage, ApiError } from '@/lib/types';
 import { useSession } from '@/lib/auth-client';
 import { usePlausible } from 'next-plausible';
+import { toast } from '@/components/ui/sonner';
 
 // Components
 import DomainSection from './DomainSection';
-import { SendHorizonal, Square } from 'lucide-react';
+import { SendHorizonal, Square, RefreshCw } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
     InputGroup,
@@ -34,7 +35,6 @@ export default function DomainGenerator({
     const { data: session } = useSession();
     const [userInput, setUserInput] = useState(initialSearch || '');
     const [domains, setDomains] = useState<Domain[]>([]);
-    const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [loadingStartTime, setLoadingStartTime] = useState<number | null>(
         null
@@ -45,6 +45,10 @@ export default function DomainGenerator({
         null
     );
     const [loadingText, setLoadingText] = useState('Generating domains...');
+
+    // Error state with retry capability
+    const [lastError, setLastError] = useState<ApiError | null>(null);
+    const [canRetry, setCanRetry] = useState(false);
 
     // Domain Filters
     const [freeDomains, setFreeDomains] = useState<Domain[]>([]);
@@ -120,7 +124,34 @@ export default function DomainGenerator({
         abortControllerRef.current?.abort();
     };
 
-    const fetchSuggestions = async (
+    const handleApiError = useCallback((error: ApiError) => {
+        setLastError(error);
+        setCanRetry(error.retry_allowed);
+        
+        // Show toast notification based on error type
+        toast.error(error.message, {
+            description: error.details || undefined,
+            duration: 5000,
+        });
+    }, []);
+
+    const handleRetry = useCallback(() => {
+        setLastError(null);
+        setCanRetry(false);
+        
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
+        setIsLoading(true);
+        setLoadingStartTime(Date.now());
+        setHasReceivedFirstResponse(false);
+        setFirstResponseTime(null);
+        setLoadingText('Retrying...');
+        
+        fetchSuggestionsInternal(controller, false);
+    }, [userInput, session?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const fetchSuggestionsInternal = async (
         controller: AbortController,
         creative: boolean = false
     ) => {
@@ -151,16 +182,30 @@ export default function DomainGenerator({
             });
 
             if (!response.ok || !response.body) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(
-                    errorData.message || 'Failed to generate domains.'
-                );
+                let errorData: ApiError;
+                try {
+                    const rawError = await response.json();
+                    errorData = rawError.detail || rawError;
+                } catch {
+                    errorData = {
+                        error: true,
+                        code: 'internal_error' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+                        message: 'Failed to connect to the server. Please check your connection and try again.',
+                        retry_allowed: true,
+                    };
+                }
+                handleApiError(errorData);
+                return;
             }
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
             let isStreamComplete = false;
+
+            // Clear any previous errors on successful connection
+            setLastError(null);
+            setCanRetry(false);
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -222,10 +267,22 @@ export default function DomainGenerator({
                             isStreamComplete = true;
                             break;
                         case 'error':
-                            if (payload && 'message' in payload) {
-                                setErrorMsg(String((payload as any).message)); // eslint-disable-line @typescript-eslint/no-explicit-any
+                            if (payload) {
+                                const errorPayload: ApiError = {
+                                    error: true,
+                                    code: payload.code || 'internal_error' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+                                    message: payload.message || 'Failed to generate domains.',
+                                    details: payload.details,
+                                    retry_allowed: payload.retry_allowed ?? true,
+                                };
+                                handleApiError(errorPayload);
                             } else {
-                                setErrorMsg('Failed to generate domains.');
+                                handleApiError({
+                                    error: true,
+                                    code: 'internal_error' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+                                    message: 'Failed to generate domains.',
+                                    retry_allowed: true,
+                                });
                             }
                             isStreamComplete = true;
                             break;
@@ -247,17 +304,27 @@ export default function DomainGenerator({
                 !(error instanceof DOMException && error.name === 'AbortError')
             ) {
                 console.error(error);
-                setErrorMsg(
-                    error instanceof Error
-                        ? error.message
-                        : 'Failed to generate domains.'
-                );
+                handleApiError({
+                    error: true,
+                    code: 'internal_error' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+                    message: error instanceof Error && error.message.includes('fetch')
+                        ? 'Unable to connect to the server. Please check your internet connection.'
+                        : 'An unexpected error occurred. Please try again.',
+                    retry_allowed: true,
+                });
             }
         } finally {
             setIsLoading(false);
             setLoadingStartTime(null);
             setFirstResponseTime(null);
         }
+    };
+
+    const fetchSuggestions = async (
+        controller: AbortController,
+        creative: boolean = false
+    ) => {
+        await fetchSuggestionsInternal(controller, creative);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -273,7 +340,8 @@ export default function DomainGenerator({
         abortControllerRef.current = controller;
 
         setIsLoading(true);
-        setErrorMsg(null);
+        setLastError(null);
+        setCanRetry(false);
         setLoadingStartTime(Date.now());
         setHasReceivedFirstResponse(false);
         setFirstResponseTime(null);
@@ -290,7 +358,8 @@ export default function DomainGenerator({
         const controller = new AbortController();
         abortControllerRef.current = controller;
         setIsLoading(true);
-        setErrorMsg(null);
+        setLastError(null);
+        setCanRetry(false);
         setLoadingStartTime(Date.now());
         setHasReceivedFirstResponse(false);
         setFirstResponseTime(null);
@@ -459,6 +528,25 @@ export default function DomainGenerator({
                             {loadingText}
                         </span>
                     </motion.div>
+                ) : lastError && canRetry ? (
+                    <motion.div
+                        key="domain-error-retry"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        className="w-full overflow-hidden flex flex-col items-center justify-center gap-2"
+                    >
+                        <Button
+                            onClick={handleRetry}
+                            size="sm"
+                            variant="outline"
+                            className="gap-2"
+                        >
+                            <RefreshCw className="size-4" />
+                            Try Again
+                        </Button>
+                    </motion.div>
                 ) : !isLoading && domains.length > 0 ? (
                     <motion.div
                         key="generate-more-domains"
@@ -483,12 +571,6 @@ export default function DomainGenerator({
                     </motion.div>
                 ) : null}
             </AnimatePresence>
-
-            {errorMsg && (
-                <div className="mt-2 text-red-500">
-                    <strong>Error:</strong> {errorMsg}
-                </div>
-            )}
 
             {domains.length > 0 && (
                 <div className="pt-3 space-y-4">
