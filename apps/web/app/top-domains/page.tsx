@@ -1,8 +1,8 @@
 'use client';
 
 // Libraries
-import React, { useEffect, useState, useMemo } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import {
     useReactTable,
     getCoreRowModel,
@@ -35,6 +35,7 @@ import { toast } from '@/components/ui/sonner';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
     Table,
     TableBody,
@@ -66,6 +67,7 @@ export default function TopDomains() {
     const { data: session } = useSession();
     const [domains, setDomains] = useState<Domain[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [hasError, setHasError] = useState(false);
     const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
@@ -174,7 +176,7 @@ export default function TopDomains() {
                     setDomainVotes(votesMap);
                 }
             } catch (error) {
-                console.error('Failed to fetch ratings:', error);
+                console.warn('Failed to fetch ratings:', error);
             }
         };
 
@@ -210,7 +212,9 @@ export default function TopDomains() {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                const errorMessage = errorData.detail?.message || errorData.detail || 
+                const errorMessage =
+                    errorData.detail?.message ||
+                    errorData.detail ||
                     'Failed to submit vote';
                 toast.error(errorMessage);
                 return;
@@ -237,12 +241,6 @@ export default function TopDomains() {
         if (!session?.user?.id) {
             toast.info('You need to be logged in to favorite domains', {
                 description: 'Sign in to save your favorite domain names.',
-                action: {
-                    label: 'Sign in',
-                    onClick: () => {
-                        router.push('/login');
-                    },
-                },
             });
             return;
         }
@@ -274,8 +272,12 @@ export default function TopDomains() {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                const errorMessage = errorData.detail?.message || errorData.detail || 
-                    `Failed to ${action === 'fav' ? 'favorite' : 'unfavorite'} domain`;
+                const errorMessage =
+                    errorData.detail?.message ||
+                    errorData.detail ||
+                    `Failed to ${
+                        action === 'fav' ? 'favorite' : 'unfavorite'
+                    } domain`;
                 toast.error(errorMessage);
                 return;
             }
@@ -288,7 +290,7 @@ export default function TopDomains() {
                         : d
                 )
             );
-            
+
             // Show success toast
             if (action === 'fav') {
                 toast.success(`Added ${domain} to favorites`);
@@ -550,74 +552,78 @@ export default function TopDomains() {
         manualSorting: true,
     });
 
-    useEffect(() => {
-        const fetchDomains = async () => {
-            setIsLoading(true);
-            try {
-                const params = new URLSearchParams();
-                params.append('page', page.toString());
-                params.append('page_size', pageSize.toString());
-                params.append('sort_by', sortBy);
-                params.append('order', sortOrder);
+    const fetchDomains = async () => {
+        setIsLoading(true);
+        setHasError(false);
+        try {
+            const params = new URLSearchParams();
+            params.append('page', page.toString());
+            params.append('page_size', pageSize.toString());
+            params.append('sort_by', sortBy);
+            params.append('order', sortOrder);
 
-                if (statusFilter) {
-                    params.append('status', statusFilter);
-                } else {
-                    params.append('status', '');
-                }
-
-                if (debouncedSearchQuery.trim()) {
-                    params.append('search', debouncedSearchQuery.trim());
-                }
-
-                if (session?.user?.id) {
-                    params.append('user_id', session.user.id);
-                }
-
-                const response = await fetch(
-                    `${TOP_DOMAINS_API_URL}?${params.toString()}`
-                );
-
-                if (response.ok) {
-                    const data = await response.json();
-                    const domainObjects: Domain[] =
-                        data.suggestions?.map(
-                            (suggestion: {
-                                domain: string;
-                                tld: string;
-                                status: DomainStatus;
-                                rating?: number;
-                                created_at: string;
-                                updated_at: string;
-                                total_ratings?: number;
-                                model?: string;
-                                prompt?: string;
-                                is_favorite?: boolean | null;
-                            }) => {
-                                return {
-                                    domain: suggestion.domain,
-                                    tld: suggestion.tld,
-                                    status: suggestion.status,
-                                    rating: suggestion.rating,
-                                    created_at: suggestion.created_at,
-                                    updated_at: suggestion.updated_at,
-                                    total_ratings: suggestion.total_ratings,
-                                    model: suggestion.model,
-                                    prompt: suggestion.prompt,
-                                    is_favorite: suggestion.is_favorite,
-                                };
-                            }
-                        ) || [];
-                    setAllDomains(domainObjects);
-                    setTotal(data.total || 0);
-                }
-            } catch (error) {
-                console.error('Failed to fetch top domains:', error);
-            } finally {
-                setIsLoading(false);
+            if (statusFilter) {
+                params.append('status', statusFilter);
+            } else {
+                params.append('status', '');
             }
-        };
 
+            if (debouncedSearchQuery.trim()) {
+                params.append('search', debouncedSearchQuery.trim());
+            }
+
+            if (session?.user?.id) {
+                params.append('user_id', session.user.id);
+            }
+
+            const response = await fetch(
+                `${TOP_DOMAINS_API_URL}?${params.toString()}`
+            );
+
+            if (response.ok) {
+                const data = await response.json();
+                const domainObjects: Domain[] =
+                    data.suggestions?.map(
+                        (suggestion: {
+                            domain: string;
+                            tld: string;
+                            status: DomainStatus;
+                            rating?: number;
+                            created_at: string;
+                            updated_at: string;
+                            total_ratings?: number;
+                            model?: string;
+                            prompt?: string;
+                            is_favorite?: boolean | null;
+                        }) => {
+                            return {
+                                domain: suggestion.domain,
+                                tld: suggestion.tld,
+                                status: suggestion.status,
+                                rating: suggestion.rating,
+                                created_at: suggestion.created_at,
+                                updated_at: suggestion.updated_at,
+                                total_ratings: suggestion.total_ratings,
+                                model: suggestion.model,
+                                prompt: suggestion.prompt,
+                                is_favorite: suggestion.is_favorite,
+                            };
+                        }
+                    ) || [];
+                setAllDomains(domainObjects);
+                setTotal(data.total || 0);
+            } else {
+                setHasError(true);
+            }
+        } catch (error) {
+            console.warn('Failed to fetch top domains:', error);
+            setHasError(true);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
         fetchDomains();
     }, [
         page,
@@ -792,9 +798,26 @@ export default function TopDomains() {
                     )}
                 </div>
 
-                {showLoadingIndicator ? (
-                    <div className="text-center py-8 flex-1 min-h-[500px] flex items-center justify-center">
-                        <p className="text-gray-600">Loading domains...</p>
+                {hasError ? (
+                    <div className="text-center py-8 flex-1 min-h-[500px] flex flex-col items-center justify-center space-y-4">
+                        <div className="space-y-2">
+                            <h3 className="text-lg font-semibold text-neutral-700">
+                                Failed to load domains
+                            </h3>
+                            <p className="text-neutral-600 max-w-md mx-auto">
+                                We encountered an error while fetching the top
+                                domains. Please check your connection and try
+                                again.
+                            </p>
+                        </div>
+                    </div>
+                ) : showLoadingIndicator ? (
+                    <div className="w-full flex-1 min-h-[500px] space-y-4 p-4">
+                        {[...Array(10)].map((_, i) => (
+                            <div key={i} className="flex gap-4 items-center">
+                                <Skeleton className="h-12 w-full" />
+                            </div>
+                        ))}
                     </div>
                 ) : domains.length === 0 ? (
                     <div className="text-center py-8 flex-1 min-h-[500px] flex flex-col items-center justify-center">

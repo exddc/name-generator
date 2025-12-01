@@ -2,8 +2,6 @@
 
 // Libraries
 import { useSession, signOut, authClient } from '@/lib/auth-client';
-import Link from 'next/link';
-import { cn } from '@/lib/utils';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Domain, DomainStatus } from '@/lib/types';
@@ -14,42 +12,25 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DomainRow } from '@/components/DomainGenerator';
+import { Skeleton } from '@/components/ui/skeleton';
 
 import { PageShell, PageHeader } from '@/components/page-layout';
 
 const FAVORITE_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/user/favorite`;
 
-export default function Profile() {
-    const { data: session, isPending } = useSession();
-    const router = useRouter();
-    const [name, setName] = useState('');
-    const [isSaving, setIsSaving] = useState(false);
+function FavoritesList({ userId }: { userId: string }) {
     const [favorites, setFavorites] = useState<Domain[]>([]);
-    const [isLoadingFavorites, setIsLoadingFavorites] = useState(false);
-
-    useEffect(() => {
-        if (!isPending && !session?.user) {
-            router.push('/login');
-        }
-    }, [session, isPending, router]);
-
-    useEffect(() => {
-        if (session?.user?.name) {
-            setName(session.user.name);
-        }
-    }, [session?.user?.name]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState(false);
 
     useEffect(() => {
         const fetchFavorites = async () => {
-            if (!session?.user?.id) {
-                return;
-            }
-
-            setIsLoadingFavorites(true);
+            setIsLoading(true);
+            setError(false);
             try {
                 const params = new URLSearchParams();
-                params.append('user_id', session.user.id);
-                params.append('page_size', '100'); // Fetch enough favorites
+                params.append('user_id', userId);
+                params.append('page_size', '100');
 
                 const response = await fetch(
                     `${FAVORITE_API_URL}?${params.toString()}`
@@ -79,34 +60,78 @@ export default function Profile() {
                         ) || [];
                     setFavorites(domainObjects);
                 } else {
-                    toast.error('Failed to load favorites');
+                    setError(true);
                 }
             } catch (error) {
-                console.error('Failed to fetch favorites:', error);
-                toast.error('Failed to load favorites. Please try again.');
+                console.warn('Failed to fetch favorites:', error);
+                setError(true);
             } finally {
-                setIsLoadingFavorites(false);
+                setIsLoading(false);
             }
         };
 
         fetchFavorites();
-    }, [session?.user?.id]);
+    }, [userId]);
 
-    if (isPending) {
+    if (isLoading) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[60vh] px-6">
-                <div className="w-full max-w-md bg-white p-8 rounded-2xl backdrop-blur-lg bg-opacity-40 border border-neutral-200 shadow-lg">
-                    <div className="text-center">
-                        <p className="text-gray-600">Loading...</p>
-                    </div>
-                </div>
+            <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-20 w-full" />
+                ))}
             </div>
         );
     }
 
-    if (!session?.user) {
-        return null;
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center py-8 text-center space-y-2">
+                <p className="text-neutral-700 font-medium">
+                    Unable to load favorites
+                </p>
+                <p className="text-neutral-600 text-sm">
+                    There was a problem connecting to the server.
+                </p>
+            </div>
+        );
     }
+
+    if (favorites.length === 0) {
+        return (
+            <div className="text-center py-8">
+                <p className="text-gray-600">
+                    No favorites yet. Start favoriting domains to see them here!
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-3">
+            {favorites.map((domain) => (
+                <DomainRow key={domain.domain} domain={domain} />
+            ))}
+        </div>
+    );
+}
+
+export default function Profile() {
+    const { data: session, isPending } = useSession();
+    const router = useRouter();
+    const [name, setName] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    useEffect(() => {
+        if (!isPending && !session?.user) {
+            router.push('/login');
+        }
+    }, [session, isPending, router]);
+
+    useEffect(() => {
+        if (session?.user?.name) {
+            setName(session.user.name);
+        }
+    }, [session?.user?.name]);
 
     const handleSignOut = async () => {
         await signOut();
@@ -135,6 +160,10 @@ export default function Profile() {
         }
     };
 
+    if (!isPending && !session?.user) {
+        return null;
+    }
+
     return (
         <PageShell>
             <PageHeader
@@ -159,8 +188,12 @@ export default function Profile() {
                                 <label className="block text-sm font-medium mb-2">
                                     Email
                                 </label>
-                                <div className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm items-center">
-                                    {session.user.email}
+                                <div className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm items-center text-muted-foreground">
+                                    {isPending ? (
+                                        <Skeleton className="h-4 w-48" />
+                                    ) : (
+                                        session?.user?.email
+                                    )}
                                 </div>
                             </div>
 
@@ -169,27 +202,32 @@ export default function Profile() {
                                     Name
                                 </label>
                                 <div className="flex gap-2">
-                                    <Input
-                                        type="text"
-                                        value={name}
-                                        onChange={(e) =>
-                                            setName(e.target.value)
-                                        }
-                                        onBlur={handleUpdateName}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                                e.currentTarget.blur();
+                                    {isPending ? (
+                                        <Skeleton className="h-10 w-full" />
+                                    ) : (
+                                        <Input
+                                            type="text"
+                                            value={name}
+                                            onChange={(e) =>
+                                                setName(e.target.value)
                                             }
-                                        }}
-                                        disabled={isSaving}
-                                        className="flex-1"
-                                    />
+                                            onBlur={handleUpdateName}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.currentTarget.blur();
+                                                }
+                                            }}
+                                            disabled={isSaving}
+                                            className="flex-1"
+                                        />
+                                    )}
                                 </div>
                             </div>
 
                             <Button
                                 variant="destructive"
                                 onClick={handleSignOut}
+                                disabled={isPending}
                             >
                                 Sign Out
                             </Button>
@@ -213,32 +251,20 @@ export default function Profile() {
                         <h2 className="text-xl font-heading font-semibold tracking-tight mb-2">
                             Favorites
                         </h2>
-                        <p className="text-gray-600 text-sm">Your favorited domains</p>
+                        <p className="text-gray-600 text-sm">
+                            Your favorited domains
+                        </p>
                     </div>
 
-                    <div className="space-y-3">
-                        {isLoadingFavorites ? (
-                            <div className="text-center py-8">
-                                <p className="text-gray-600">
-                                    Loading favorites...
-                                </p>
-                            </div>
-                        ) : favorites.length === 0 ? (
-                            <div className="text-center py-8">
-                                <p className="text-gray-600">
-                                    No favorites yet. Start favoriting domains
-                                    to see them here!
-                                </p>
-                            </div>
-                        ) : (
-                            favorites.map((domain) => (
-                                <DomainRow
-                                    key={domain.domain}
-                                    domain={domain}
-                                />
-                            ))
-                        )}
-                    </div>
+                    {isPending ? (
+                        <div className="space-y-3">
+                            {[1, 2, 3].map((i) => (
+                                <Skeleton key={i} className="h-20 w-full" />
+                            ))}
+                        </div>
+                    ) : (
+                        <FavoritesList userId={session!.user.id} />
+                    )}
                 </Card>
             </div>
         </PageShell>

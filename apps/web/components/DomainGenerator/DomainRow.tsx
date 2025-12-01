@@ -1,7 +1,7 @@
 'use client';
 
 // Libraries
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
     Domain,
@@ -21,6 +21,7 @@ import {
     ShoppingCart,
     ThumbsDown,
     ThumbsUp,
+    RefreshCw,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '../ui/button';
@@ -44,6 +45,7 @@ export default function DomainRow({ domain }: DomainRowProps) {
     const [displayCount, setDisplayCount] = useState(5);
     const [fetchLimit, setFetchLimit] = useState(5);
     const [isStreamFinished, setIsStreamFinished] = useState(true);
+    const [error, setError] = useState(false);
     const [votingDomain, setVotingDomain] = useState<string | null>(null);
     const [domainVotes, setDomainVotes] = useState<Map<string, 1 | -1>>(
         new Map()
@@ -84,7 +86,7 @@ export default function DomainRow({ domain }: DomainRowProps) {
                     setDomainVotes(votesMap);
                 }
             } catch (error) {
-                console.error('Failed to fetch ratings:', error);
+                console.warn('Failed to fetch ratings:', error);
             }
         };
 
@@ -116,12 +118,155 @@ export default function DomainRow({ domain }: DomainRowProps) {
                     setFavoritedDomains(favoritesSet);
                 }
             } catch (error) {
-                console.error('Failed to fetch favorites:', error);
+                console.warn('Failed to fetch favorites:', error);
             }
         };
 
         fetchFavorites();
     }, [session?.user?.id]);
+
+    const fetchVariants = async () => {
+        setLoading(true);
+        setIsStreamFinished(false);
+        setError(false);
+
+        abortControllerRef.current?.abort();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
+        try {
+            const domainName = domain.domain.split('.')[0];
+            const response = await fetch(
+                `${DOMAIN_VARIANTS_URL}?domain_name=${domainName}&limit=${fetchLimit}`,
+                { signal: controller.signal }
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            if (!response.body) {
+                throw new Error('No response body');
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let streamCompleted = false;
+
+            const processBuffer = () => {
+                let delimiterIndex = buffer.indexOf('\n\n');
+
+                while (delimiterIndex !== -1) {
+                    const rawEvent = buffer.slice(0, delimiterIndex).trim();
+                    buffer = buffer.slice(delimiterIndex + 2);
+
+                    if (!rawEvent) {
+                        delimiterIndex = buffer.indexOf('\n\n');
+                        continue;
+                    }
+
+                    let eventType: string | null = null;
+                    let dataPayload = '';
+
+                    for (const rawLine of rawEvent.split('\n')) {
+                        const line = rawLine.trim();
+                        if (!line) {
+                            continue;
+                        }
+
+                        if (line.startsWith('event:')) {
+                            eventType = line.substring(6).trim();
+                        } else if (line.startsWith('data:')) {
+                            dataPayload += line.substring(5).trim();
+                        }
+                    }
+
+                    if (!eventType) {
+                        delimiterIndex = buffer.indexOf('\n\n');
+                        continue;
+                    }
+
+                    if (eventType === 'suggestions') {
+                        if (!dataPayload) {
+                            delimiterIndex = buffer.indexOf('\n\n');
+                            continue;
+                        }
+
+                        try {
+                            const payload = JSON.parse(dataPayload);
+                            const applySuggestions = (
+                                items: Domain[] | undefined
+                            ) => {
+                                if (!items?.length) {
+                                    return;
+                                }
+                                setVariants((prev) => {
+                                    const next = [...prev];
+                                    for (const item of items) {
+                                        const existingIndex = next.findIndex(
+                                            (d) => d.domain === item.domain
+                                        );
+                                        if (existingIndex < 0) {
+                                            next.push(item);
+                                        } else {
+                                            next[existingIndex] = item;
+                                        }
+                                    }
+                                    return next;
+                                });
+                            };
+
+                            applySuggestions(payload.new);
+                            applySuggestions(payload.updates);
+                        } catch (parseError) {
+                            console.error(
+                                'Failed to parse variant suggestions event:',
+                                parseError
+                            );
+                        }
+                    } else if (eventType === 'complete') {
+                        setIsStreamFinished(true);
+                        setLoading(false);
+                        streamCompleted = true;
+                        return;
+                    }
+
+                    delimiterIndex = buffer.indexOf('\n\n');
+                }
+            };
+
+            while (!streamCompleted) {
+                const { done, value } = await reader.read();
+
+                if (value) {
+                    buffer += decoder.decode(value, { stream: true });
+                    buffer = buffer.replace(/\r/g, '');
+                    processBuffer();
+                    if (streamCompleted) {
+                        break;
+                    }
+                }
+
+                if (done) {
+                    buffer += decoder.decode();
+                    buffer = buffer.replace(/\r/g, '');
+                    processBuffer();
+                    break;
+                }
+            }
+        } catch (error) {
+            if ((error as Error).name !== 'AbortError') {
+                console.warn('Failed to fetch variants:', error);
+                setError(true);
+            }
+        } finally {
+            if (!controller.signal.aborted) {
+                setLoading(false);
+                setIsStreamFinished(true);
+            }
+        }
+    };
 
     useEffect(() => {
         if (!open) {
@@ -134,149 +279,10 @@ export default function DomainRow({ domain }: DomainRowProps) {
             return;
         }
 
-        abortControllerRef.current?.abort();
-        const controller = new AbortController();
-        abortControllerRef.current = controller;
-
-        const fetchVariants = async () => {
-            setLoading(true);
-            setIsStreamFinished(false);
-
-            try {
-                const domainName = domain.domain.split('.')[0];
-                const response = await fetch(
-                    `${DOMAIN_VARIANTS_URL}?domain_name=${domainName}&limit=${fetchLimit}`,
-                    { signal: controller.signal }
-                );
-
-                if (!response.body) {
-                    throw new Error('No response body');
-                }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-                let streamCompleted = false;
-
-                const processBuffer = () => {
-                    let delimiterIndex = buffer.indexOf('\n\n');
-
-                    while (delimiterIndex !== -1) {
-                        const rawEvent = buffer.slice(0, delimiterIndex).trim();
-                        buffer = buffer.slice(delimiterIndex + 2);
-
-                        if (!rawEvent) {
-                            delimiterIndex = buffer.indexOf('\n\n');
-                            continue;
-                        }
-
-                        let eventType: string | null = null;
-                        let dataPayload = '';
-
-                        for (const rawLine of rawEvent.split('\n')) {
-                            const line = rawLine.trim();
-                            if (!line) {
-                                continue;
-                            }
-
-                            if (line.startsWith('event:')) {
-                                eventType = line.substring(6).trim();
-                            } else if (line.startsWith('data:')) {
-                                dataPayload += line.substring(5).trim();
-                            }
-                        }
-
-                        if (!eventType) {
-                            delimiterIndex = buffer.indexOf('\n\n');
-                            continue;
-                        }
-
-                        if (eventType === 'suggestions') {
-                            if (!dataPayload) {
-                                delimiterIndex = buffer.indexOf('\n\n');
-                                continue;
-                            }
-
-                            try {
-                                const payload = JSON.parse(dataPayload);
-                                const applySuggestions = (
-                                    items: Domain[] | undefined
-                                ) => {
-                                    if (!items?.length) {
-                                        return;
-                                    }
-                                    setVariants((prev) => {
-                                        const next = [...prev];
-                                        for (const item of items) {
-                                            const existingIndex =
-                                                next.findIndex(
-                                                    (d) =>
-                                                        d.domain === item.domain
-                                                );
-                                            if (existingIndex < 0) {
-                                                next.push(item);
-                                            } else {
-                                                next[existingIndex] = item;
-                                            }
-                                        }
-                                        return next;
-                                    });
-                                };
-
-                                applySuggestions(payload.new);
-                                applySuggestions(payload.updates);
-                            } catch (parseError) {
-                                console.error(
-                                    'Failed to parse variant suggestions event:',
-                                    parseError
-                                );
-                            }
-                        } else if (eventType === 'complete') {
-                            setIsStreamFinished(true);
-                            setLoading(false);
-                            streamCompleted = true;
-                            return;
-                        }
-
-                        delimiterIndex = buffer.indexOf('\n\n');
-                    }
-                };
-
-                while (!streamCompleted) {
-                    const { done, value } = await reader.read();
-
-                    if (value) {
-                        buffer += decoder.decode(value, { stream: true });
-                        buffer = buffer.replace(/\r/g, '');
-                        processBuffer();
-                        if (streamCompleted) {
-                            break;
-                        }
-                    }
-
-                    if (done) {
-                        buffer += decoder.decode();
-                        buffer = buffer.replace(/\r/g, '');
-                        processBuffer();
-                        break;
-                    }
-                }
-            } catch (error) {
-                if ((error as Error).name !== 'AbortError') {
-                    console.error('Failed to fetch variants:', error);
-                }
-            } finally {
-                if (!controller.signal.aborted) {
-                    setLoading(false);
-                    setIsStreamFinished(true);
-                }
-            }
-        };
-
         fetchVariants();
 
         return () => {
-            controller.abort();
+            abortControllerRef.current?.abort();
         };
     }, [open, domain.domain, fetchLimit]);
 
@@ -320,7 +326,9 @@ export default function DomainRow({ domain }: DomainRowProps) {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                const errorMessage = errorData.detail?.message || errorData.detail || 
+                const errorMessage =
+                    errorData.detail?.message ||
+                    errorData.detail ||
                     'Failed to submit vote';
                 toast.error(errorMessage);
                 return;
@@ -352,12 +360,6 @@ export default function DomainRow({ domain }: DomainRowProps) {
         if (!session?.user?.id) {
             toast.info('You need to be logged in to favorite domains', {
                 description: 'Sign in to save your favorite domain names.',
-                action: {
-                    label: 'Sign in',
-                    onClick: () => {
-                        window.location.href = '/login';
-                    },
-                },
             });
             return;
         }
@@ -388,8 +390,12 @@ export default function DomainRow({ domain }: DomainRowProps) {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                const errorMessage = errorData.detail?.message || errorData.detail || 
-                    `Failed to ${action === 'fav' ? 'favorite' : 'unfavorite'} domain`;
+                const errorMessage =
+                    errorData.detail?.message ||
+                    errorData.detail ||
+                    `Failed to ${
+                        action === 'fav' ? 'favorite' : 'unfavorite'
+                    } domain`;
                 toast.error(errorMessage);
                 return;
             }
@@ -403,7 +409,7 @@ export default function DomainRow({ domain }: DomainRowProps) {
                 }
                 return next;
             });
-            
+
             // Show success toast
             if (action === 'fav') {
                 toast.success(`Added ${domain} to favorites`);
@@ -680,7 +686,22 @@ export default function DomainRow({ domain }: DomainRowProps) {
                                     </div>
                                 ))}
 
-                            {loading && variants.length === 0 ? (
+                            {error ? (
+                                <div className="flex flex-col items-center justify-center py-4 gap-4">
+                                    <div className="text-red-500 flex items-center gap-2 text-sm">
+                                        <span>Failed to load variants</span>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 text-xs gap-1.5"
+                                        onClick={() => fetchVariants()}
+                                    >
+                                        <RefreshCw className="size-3" />
+                                        Try again
+                                    </Button>
+                                </div>
+                            ) : loading && variants.length === 0 ? (
                                 <span className="flex items-center justify-center text-xs py-1 animate-pulse">
                                     Checking other top-level domains...
                                 </span>

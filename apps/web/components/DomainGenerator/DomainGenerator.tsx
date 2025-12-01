@@ -132,10 +132,6 @@ export default function DomainGenerator({
         toast.error(error.message, {
             description: error.details || undefined,
             duration: 5000,
-            action: error.retry_allowed ? {
-                label: 'Retry',
-                onClick: () => handleRetry(),
-            } : undefined,
         });
     }, []);
 
