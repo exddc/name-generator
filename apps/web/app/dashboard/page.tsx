@@ -1,7 +1,6 @@
 'use client';
 
 import { useSession } from '@/lib/auth-client';
-import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -33,17 +32,11 @@ import {
     Line,
     LineChart,
     ComposedChart,
-    CartesianGrid,
     Legend,
-    PieChart,
-    Pie,
-    Cell,
 } from 'recharts';
 import { motion } from 'motion/react';
 import {
-    ArrowLeft,
     Activity,
-    Server,
     Zap,
     AlertCircle,
     CheckCircle,
@@ -51,7 +44,6 @@ import {
     Layers,
     Database,
     RefreshCw,
-    List,
     Cpu,
 } from 'lucide-react';
 
@@ -59,13 +51,11 @@ import { PageShell, PageHeader } from '@/components/page-layout';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-// Brand colors extracted from layout.tsx
 const COLORS = {
     pink: '#e59999',
     purple: '#9683dd',
     cyan: '#8fdadb',
     blue: '#3957c0',
-    // Additional complementary colors for charts
     indigo: '#6366f1',
     red: '#ef4444',
     success: '#10b981',
@@ -78,11 +68,7 @@ export default function Dashboard() {
     const { data: session, isPending } = useSession();
     const router = useRouter();
     const [isCheckingAccess, setIsCheckingAccess] = useState(true);
-
-    // Global Time Range
     const [timeRange, setTimeRange] = useState<'24h' | 'all'>('24h');
-
-    // State for independent sections
     const [summary24h, setSummary24h] = useState<MetricsSummaryResponse | null>(
         null
     );
@@ -101,9 +87,10 @@ export default function Dashboard() {
     const [isLoadingHistory, setIsLoadingHistory] = useState(true);
     const [isLoadingQueue, setIsLoadingQueue] = useState(true);
     const [isLoadingWorkers, setIsLoadingWorkers] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     // Derived data
-    const formattedChartData = history?.chart_data.map((point) => ({
+    const formattedChartData = history?.chart_data?.map((point) => ({
         ...point,
         avg_latency: point.avg_latency / 1000,
         p99_latency: point.p99_latency / 1000,
@@ -135,53 +122,85 @@ export default function Dashboard() {
     useEffect(() => {
         if (!isCheckingAccess && session?.user) {
             const fetchAll = () => {
+                setError(null);
                 // Summary
                 setIsLoadingSummary(true);
                 Promise.all([
                     fetch(`${API_URL}/v1/metrics/summary?range=24h`).then(
-                        (res) => res.json()
+                        (res) => {
+                            if (!res.ok)
+                                throw new Error(
+                                    `Summary 24h: ${res.statusText}`
+                                );
+                            return res.json();
+                        }
                     ),
                     fetch(`${API_URL}/v1/metrics/summary?range=all`).then(
-                        (res) => res.json()
+                        (res) => {
+                            if (!res.ok)
+                                throw new Error(
+                                    `Summary All: ${res.statusText}`
+                                );
+                            return res.json();
+                        }
                     ),
                 ])
                     .then(([data24h, dataAll]) => {
                         setSummary24h(data24h);
                         setSummaryAll(dataAll);
                     })
-                    .catch((err) => console.error('Summary fetch error', err))
+                    .catch((err) => {
+                        console.error('Summary fetch error', err);
+                        setError((prev) => prev || err.message);
+                    })
                     .finally(() => setIsLoadingSummary(false));
 
                 // History
                 setIsLoadingHistory(true);
                 fetch(`${API_URL}/v1/metrics/history?range=${timeRange}`)
-                    .then((res) => res.json())
+                    .then((res) => {
+                        if (!res.ok)
+                            throw new Error(`History: ${res.statusText}`);
+                        return res.json();
+                    })
                     .then((data) => setHistory(data))
-                    .catch((err) => console.error('History fetch error', err))
+                    .catch((err) => {
+                        console.error('History fetch error', err);
+                        setError((prev) => prev || err.message);
+                    })
                     .finally(() => setIsLoadingHistory(false));
 
-                // Queue - for All Time we might still want 24h or maybe 1h?
-                // Let's stick to 24h for queue unless specified otherwise.
-                // Or maybe align it?
+                // Queue
                 const queueRange = timeRange === '24h' ? '24h' : '24h';
                 setIsLoadingQueue(true);
                 fetch(`${API_URL}/v1/metrics/queue?range=${queueRange}`)
-                    .then((res) => res.json())
+                    .then((res) => {
+                        if (!res.ok)
+                            throw new Error(`Queue: ${res.statusText}`);
+                        return res.json();
+                    })
                     .then((data) => setQueueData(data))
-                    .catch((err) => console.error('Queue fetch error', err))
+                    .catch((err) => {
+                        console.error('Queue fetch error', err);
+                    })
                     .finally(() => setIsLoadingQueue(false));
 
-                // Workers - usually snapshot, no range
+                // Workers
                 setIsLoadingWorkers(true);
                 fetch(`${API_URL}/v1/metrics/workers`)
-                    .then((res) => res.json())
+                    .then((res) => {
+                        if (!res.ok)
+                            throw new Error(`Workers: ${res.statusText}`);
+                        return res.json();
+                    })
                     .then((data) => setWorkerData(data))
-                    .catch((err) => console.error('Workers fetch error', err))
+                    .catch((err) => {
+                        console.error('Workers fetch error', err);
+                    })
                     .finally(() => setIsLoadingWorkers(false));
             };
 
             fetchAll();
-            // Optional: polling could be added here
         }
     }, [isCheckingAccess, session, timeRange]);
 
@@ -227,6 +246,15 @@ export default function Dashboard() {
             </div>
 
             <div className="w-full max-w-6xl xl:w-[1152px] space-y-12">
+                {error && (
+                    <div className="bg-destructive/10 border border-destructive/20 text-destructive p-4 rounded-lg flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4" />
+                        <p className="text-sm font-medium">
+                            Error loading metrics: {error}. Please check server
+                            logs or database migrations.
+                        </p>
+                    </div>
+                )}
                 {/* Primary Stats */}
                 {isLoadingSummary ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 animate-pulse">
