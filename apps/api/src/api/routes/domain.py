@@ -4,7 +4,7 @@ import asyncio
 import datetime
 import json
 import time
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -31,8 +31,6 @@ from api.models.api_models import (
 from api.exceptions import (
     DomainGeneratorException,
     ServiceUnavailableError,
-    GenerationFailedError,
-    InvalidInputError,
     create_error_response,
 )
 from api.suggestor.groq import GroqSuggestor
@@ -46,9 +44,9 @@ from api.utils import (
     filter_valid_domains,
     upsert_domain_in_db,
 )
-from api.models.db_models import Rating as RatingDB, Domain as DomainDB, Favorite as FavoriteDB, Suggestion as SuggestionDB
+from api.models.db_models import Rating as RatingDB, Domain as DomainDB, Favorite as FavoriteDB, Suggestion as SuggestionDB, WorkerMetrics, QueueSnapshot
 from tortoise import connections
-from tortoise.expressions import Q
+from tortoise.expressions import Q, F
 
 
 settings = get_settings()
@@ -343,6 +341,11 @@ async def get_domain_variants(
     Check a domain against a list of TLDs, iterating until enough available domains are found.
     """
     metrics = MetricsTracker()
+    try:
+        metrics.set_queue_depth(len(queue))
+    except Exception:
+        pass
+
     metrics.start_timer("total")
 
     accumulated: list[DomainSuggestion] = []
@@ -363,7 +366,7 @@ async def get_domain_variants(
 
         metrics.start_timer("worker")
         metrics.increment_worker_job()
-        results = await enqueue_and_wait(plain_domains_to_check)
+        results = await enqueue_and_wait(plain_domains_to_check, metrics)
         metrics.stop_timer("worker")
 
         status_lookup = {
@@ -448,7 +451,7 @@ async def get_domain_variants_stream(
 
             metrics.start_timer("worker")
             metrics.increment_worker_job()
-            results = await enqueue_and_wait(plain_domains_to_check)
+            results = await enqueue_and_wait(plain_domains_to_check, metrics)
             metrics.stop_timer("worker")
 
             status_lookup = {
@@ -531,6 +534,10 @@ async def suggest(
     retries = 0
     max_retries = max(1, settings.max_suggestions_retries)
     metrics = MetricsTracker()
+    try:
+        metrics.set_queue_depth(len(queue))
+    except Exception:
+        pass
 
     accumulated: list[DomainSuggestion] = []
     accumulated_lookup: dict[str, DomainSuggestion] = {}
@@ -554,7 +561,7 @@ async def suggest(
 
         metrics.start_timer("worker")
         metrics.increment_worker_job()
-        results = await enqueue_and_wait(plain_domains)
+        results = await enqueue_and_wait(plain_domains, metrics)
         metrics.stop_timer("worker")
         
         status_lookup = {
@@ -632,6 +639,10 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
     max_retries = max(1, settings.max_suggestions_retries)
 
     metrics = MetricsTracker()
+    try:
+        metrics.set_queue_depth(len(queue))
+    except Exception:
+        pass
 
     async def event_generator():
         retries = 0
@@ -719,7 +730,7 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
                 metrics.start_timer("worker")
                 metrics.increment_worker_job()
                 try:
-                    results = await enqueue_and_wait(domains_to_check)
+                    results = await enqueue_and_wait(domains_to_check, metrics)
                 except ServiceUnavailableError as e:
                     metrics.stop_timer("worker")
                     error_response = ErrorResponse(
@@ -866,8 +877,8 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-async def enqueue_and_wait(domains: List[str]) -> List[dict[str, str]]:
-    """Enqueue a domain check job and await its result for a configurable timeout."""
+async def enqueue_and_wait(domains: List[str], metrics: Optional[MetricsTracker] = None) -> List[dict[str, str]]:
+    """Enqueue domain check jobs individually and await their results."""
     if not domains:
         return []
 
@@ -885,69 +896,160 @@ async def enqueue_and_wait(domains: List[str]) -> List[dict[str, str]]:
     if not valid_domains:
         return results
 
-    # Retry logic for Redis/queue connection issues
+    jobs: List[Job] = []
     max_enqueue_retries = 3
-    last_error = None
+    enqueued_at = time.time()
     
-    for attempt in range(max_enqueue_retries):
-        try:
-            job = queue.enqueue("domain_checker.main.handle_domain_check", args=[valid_domains])
-            break  # Successfully enqueued
-        except RedisConnectionError as exc:
-            last_error = exc
-            print(f"[API] Redis connection error (attempt {attempt + 1}/{max_enqueue_retries}): {exc}")
-            if attempt < max_enqueue_retries - 1:
-                await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
-                continue
-            raise ServiceUnavailableError(details="Unable to connect to the domain validation service.")
-        except Exception as exc:
-            last_error = exc
-            print(f"[API] Enqueue error (attempt {attempt + 1}/{max_enqueue_retries}): {exc}")
-            if attempt < max_enqueue_retries - 1:
-                await asyncio.sleep(0.5 * (attempt + 1))
-                continue
-            raise ServiceUnavailableError(details="Failed to start domain validation.")
+    for domain in valid_domains:
+        enqueued = False
+        for attempt in range(max_enqueue_retries):
+            try:
+                job = queue.enqueue(
+                    "domain_checker.main.handle_single_domain_check",
+                    args=[domain, enqueued_at]
+                )
+                jobs.append(job)
+                enqueued = True
+                break
+            except RedisConnectionError as exc:
+                print(f"[API] Redis connection error for {domain} (attempt {attempt + 1}/{max_enqueue_retries}): {exc}")
+                if attempt < max_enqueue_retries - 1:
+                    await asyncio.sleep(0.1 * (attempt + 1))
+                    continue
+            except Exception as exc:
+                print(f"[API] Enqueue error for {domain} (attempt {attempt + 1}/{max_enqueue_retries}): {exc}")
+                if attempt < max_enqueue_retries - 1:
+                    await asyncio.sleep(0.1 * (attempt + 1))
+                    continue
+        
+        if not enqueued:
+            print(f"[API] Failed to enqueue check for {domain} after retries")
+            results.append({"domain": domain, "status": "unknown"})
+
+    # Record queue snapshot AFTER all domains are enqueued
+    try:
+        queue_depth_after_enqueue = len(queue)
+        if metrics:
+            metrics.set_queue_depth(queue_depth_after_enqueue)
+        asyncio.create_task(_record_queue_snapshot(queue_depth_after_enqueue))
+    except Exception:
+        pass
 
     timeout = settings.rq_job_timeout_seconds
-    if timeout <= 0:
+    if timeout <= 0 or not jobs:
         return results
 
     try:
-        valid_results = await asyncio.to_thread(_wait_for_job_result, job, timeout)
+        valid_results = await asyncio.to_thread(_wait_for_jobs_results, jobs, timeout)
         results.extend(valid_results)
-        return results
-    except TimeoutError:
-        print(f"[API] Job {job.id} timed out after {timeout}s")
-        # Return unknown status for domains that timed out (they might still be valid)
-        results.extend([
-            {"domain": domain, "status": "unknown"} for domain in valid_domains
-        ])
-        return results
-    except RuntimeError as exc:
-        print(f"[API] Job {job.id} failed: {exc}")
-        # Return unknown status for domains that failed
-        results.extend([
-            {"domain": domain, "status": "unknown"} for domain in valid_domains
-        ])
-        return results
+    except Exception as exc:
+        print(f"[API] Error waiting for jobs: {exc}")
+    
+    # Record queue snapshot after processing to show drain
+    try:
+        queue_depth_after_processing = len(queue)
+        asyncio.create_task(_record_queue_snapshot(queue_depth_after_processing))
+    except Exception:
+        pass
+
+    processed_domains = set()
+    worker_updates: dict[str, dict] = {}
+
+    for r in results:
+        processed_domains.add(r["domain"])
+        worker_id = r.get("worker_id")
+        if worker_id:
+            if worker_id not in worker_updates:
+                worker_updates[worker_id] = {
+                    "count": 0,
+                    "processing_time_ms": 0,
+                    "queue_wait_time_ms": 0,
+                }
+            worker_updates[worker_id]["count"] += 1
+            worker_updates[worker_id]["processing_time_ms"] += r.get("processing_time_ms", 0)
+            worker_updates[worker_id]["queue_wait_time_ms"] += r.get("queue_wait_time_ms", 0)
+
+    for domain in valid_domains:
+        if domain not in processed_domains:
+            results.append({"domain": domain, "status": "unknown"})
+    
+    # Update worker metrics in background
+    if worker_updates:
+        asyncio.create_task(_update_worker_metrics(worker_updates))
+
+    return results
 
 
-def _wait_for_job_result(job: Job, timeout: int) -> List[dict[str, str]]:
+async def _update_worker_metrics(updates: dict[str, dict]):
+    """Update worker metrics in database with timing information."""
+    try:
+        for worker_id, data in updates.items():
+            try:
+                count = data["count"]
+                processing_time = data["processing_time_ms"]
+                queue_wait_time = data["queue_wait_time_ms"]
+                
+                # Ensure record exists
+                await WorkerMetrics.get_or_create(worker_id=worker_id)
+                await WorkerMetrics.filter(worker_id=worker_id).update(
+                    total_jobs=F("total_jobs") + count,
+                    total_processing_time_ms=F("total_processing_time_ms") + processing_time,
+                    total_queue_wait_time_ms=F("total_queue_wait_time_ms") + queue_wait_time,
+                    last_seen=datetime.datetime.now(datetime.UTC)
+                )
+            except Exception as e:
+                print(f"[API] Error updating worker metrics for {worker_id}: {e}")
+    except Exception as e:
+        print(f"[API] Error in _update_worker_metrics: {e}")
+
+
+async def _record_queue_snapshot(queue_depth: int):
+    """Record a queue depth snapshot for monitoring."""
+    try:
+        # Count active workers in last hour
+        one_hour_ago = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
+        active_workers = await WorkerMetrics.filter(last_seen__gte=one_hour_ago).count()
+        
+        await QueueSnapshot.create(
+            queue_depth=queue_depth,
+            active_workers=active_workers
+        )
+        
+        # Clean up old snapshots
+        cutoff = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=96)
+        await QueueSnapshot.filter(timestamp__lt=cutoff).delete()
+    except Exception as e:
+        print(f"[API] Error recording queue snapshot: {e}")
+
+
+def _wait_for_jobs_results(jobs: List[Job], timeout: int) -> List[dict[str, str]]:
     deadline = time.monotonic() + timeout
     poll_interval = 0.2
 
-    while time.monotonic() < deadline:
-        job.refresh()
+    completed_results = []
+    pending_jobs = list(jobs)
 
-        if job.is_finished:
-            return job.result or []
+    while time.monotonic() < deadline and pending_jobs:
+        still_pending = []
+        for job in pending_jobs:
+            try:
+                job.refresh()
+                if job.is_finished:
+                    if isinstance(job.result, dict):
+                        completed_results.append(job.result)
+                elif job.is_failed:
+                    pass
+                else:
+                    still_pending.append(job)
+            except Exception as e:
+                print(f"Error refreshing job {job.id}: {e}")
+                still_pending.append(job)
+        
+        pending_jobs = still_pending
+        if pending_jobs:
+            time.sleep(poll_interval)
 
-        if job.is_failed:
-            raise RuntimeError(job.exc_info or "Job failed")
-
-        time.sleep(poll_interval)
-
-    raise TimeoutError("Timed out waiting for job result")
+    return completed_results
 
 
 def map_worker_status_to_domain_status(status_value: str) -> DomainStatus:

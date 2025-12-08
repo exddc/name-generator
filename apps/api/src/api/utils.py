@@ -65,6 +65,14 @@ class MetricsTracker:
         
         # Error tracking
         self.errors: list[str] = []
+        
+        # System metrics
+        self.queue_depth_at_start: Optional[int] = None
+    
+    def set_queue_depth(self, depth: int) -> None:
+        """Record the queue depth. Keeps the maximum value seen."""
+        if self.queue_depth_at_start is None or depth > self.queue_depth_at_start:
+            self.queue_depth_at_start = depth
     
     def start_timer(self, name: str) -> None:
         """Start a named timer."""
@@ -164,6 +172,8 @@ class MetricsTracker:
             # Errors
             error_count=len(self.errors),
             error_messages=self.errors if self.errors else None,
+            # System metrics
+            queue_depth_at_start=self.queue_depth_at_start,
         )
         
         return metrics

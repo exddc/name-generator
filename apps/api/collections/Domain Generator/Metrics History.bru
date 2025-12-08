@@ -1,0 +1,31 @@
+meta {
+  name: Metrics History
+  type: http
+  seq: 17
+}
+
+get {
+  url: http://localhost:8000/v1/metrics/history?range=30d
+  body: none
+  auth: inherit
+}
+
+params:query {
+  range: 30d
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+
+docs {
+  Get metrics history for charts.
+  
+  Query params:
+  - range: "all" | "24h" | "30d" (default: "30d")
+  
+  Returns time series data for latency, success rate, etc.
+}
+
+
