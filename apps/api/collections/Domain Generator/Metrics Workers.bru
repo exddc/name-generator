@@ -1,0 +1,37 @@
+meta {
+  name: Metrics Workers
+  type: http
+  seq: 19
+}
+
+get {
+  url: http://localhost:8000/v1/metrics/workers
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+
+docs {
+  Get worker metrics.
+  
+  Returns:
+  - worker_stats: List of workers with:
+    - worker_id: Unique worker identifier
+    - jobs_processed: Total jobs processed
+    - percentage: Share of total jobs
+    - last_seen: Last activity timestamp
+    - is_active: Whether worker was seen in last hour
+    - avg_processing_time_ms: Average time to process a domain
+  - active_workers: Count of workers seen in last hour
+  - total_workers: Total worker count
+  - avg_processing_time_ms: Global average processing time
+  
+  Note: Queue wait time is a global metric (available in /metrics/queue),
+  not per-worker, since all workers share the same queue.
+}
+
+

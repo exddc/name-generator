@@ -1,0 +1,29 @@
+meta {
+  name: Metrics Summary
+  type: http
+  seq: 16
+}
+
+get {
+  url: http://localhost:8000/v1/metrics/summary?range=all
+  body: none
+  auth: inherit
+}
+
+params:query {
+  range: all
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+
+docs {
+  Get metrics summary.
+  
+  Query params:
+  - range: "all" | "24h" | "30d" (default: "all")
+}
+
+

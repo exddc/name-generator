@@ -133,10 +133,21 @@ class TimeSeriesPoint(BaseModel):
     avg_yield: float
     avg_tokens: float
     error_count: int
-    
-    # New reliability/efficiency metrics
     cache_hit_rate: float
     retry_rate: float
+    avg_queue_depth: float
+
+class WorkerStat(BaseModel):
+    worker_id: str
+    jobs_processed: int
+    percentage: float
+    last_seen: datetime.datetime
+    is_active: bool = True
+    avg_processing_time_ms: float = 0.0
+
+class QueueDepthPoint(BaseModel):
+    timestamp: datetime.datetime
+    depth: int
 
 class MetricsResponse(BaseModel):
     total_suggestions: int
@@ -163,4 +174,44 @@ class MetricsResponse(BaseModel):
     avg_retry_count: float
     cache_hit_rate: float
     
+    # Queue & Worker stats
+    queue_length: int
+    worker_stats: List[WorkerStat]
+    queue_history: List[QueueDepthPoint]
+    
     chart_data: List[TimeSeriesPoint]
+
+
+class MetricsSummaryResponse(BaseModel):
+    total_suggestions: int
+    total_domains: int
+    total_generated_domains: int
+    avg_success_rate: float
+    avg_latency_ms: float
+    p99_latency_ms: float
+    avg_generation_time_ms: float
+    avg_check_time_ms: float
+    domains_per_suggestion: float
+    available_per_suggestion: float
+    unknown_domain_rate: float
+    avg_tokens_per_request: float
+    total_errors: int
+    avg_retry_count: float
+    cache_hit_rate: float
+
+
+class MetricsHistoryResponse(BaseModel):
+    chart_data: List[TimeSeriesPoint]
+
+
+class MetricsQueueResponse(BaseModel):
+    queue_length: int
+    queue_history: List[QueueDepthPoint]
+    avg_queue_wait_time_ms: float = 0.0
+
+
+class MetricsWorkerResponse(BaseModel):
+    worker_stats: List[WorkerStat]
+    active_workers: int = 0
+    total_workers: int = 0
+    avg_processing_time_ms: float = 0.0

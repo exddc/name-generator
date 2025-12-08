@@ -86,6 +86,21 @@ export type TimeSeriesPoint = {
     error_count: number;
     cache_hit_rate: number;
     retry_rate: number;
+    avg_queue_depth: number;
+}
+
+export type WorkerStat = {
+    worker_id: string;
+    jobs_processed: number;
+    percentage: number;
+    last_seen: string;
+    is_active: boolean;
+    avg_processing_time_ms: number;
+}
+
+export type QueueDepthPoint = {
+    timestamp: string;
+    depth: number;
 }
 
 export type MetricsResponse = {
@@ -113,5 +128,45 @@ export type MetricsResponse = {
     avg_retry_count: number;
     cache_hit_rate: number;
     
+    // Queue & Worker stats
+    queue_length: number;
+    worker_stats: WorkerStat[];
+    queue_history: QueueDepthPoint[];
+    
     chart_data: TimeSeriesPoint[];
+}
+
+export type MetricsSummaryResponse = {
+    total_suggestions: number;
+    total_domains: number;
+    total_generated_domains: number;
+    avg_success_rate: number;
+    avg_latency_ms: number;
+    p99_latency_ms: number;
+    avg_generation_time_ms: number;
+    avg_check_time_ms: number;
+    domains_per_suggestion: number;
+    available_per_suggestion: number;
+    unknown_domain_rate: number;
+    avg_tokens_per_request: number;
+    total_errors: number;
+    avg_retry_count: number;
+    cache_hit_rate: number;
+}
+
+export type MetricsHistoryResponse = {
+    chart_data: TimeSeriesPoint[];
+}
+
+export type MetricsQueueResponse = {
+    queue_length: number;
+    queue_history: QueueDepthPoint[];
+    avg_queue_wait_time_ms: number;
+}
+
+export type MetricsWorkerResponse = {
+    worker_stats: WorkerStat[];
+    active_workers: number;
+    total_workers: number;
+    avg_processing_time_ms: number;
 }

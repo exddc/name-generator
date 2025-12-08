@@ -52,6 +52,9 @@ class SuggestionMetrics(Model):
     error_count = fields.IntField(default=0)
     error_messages = fields.JSONField(null=True)
     
+    # System metrics
+    queue_depth_at_start = fields.IntField(null=True)
+
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
@@ -191,4 +194,49 @@ class Favorite(Model):
             ("domain",),
             ("user_id",),
             ("created_at",),
+        ]
+
+
+class WorkerMetrics(Model):
+    """
+    Tracks cumulative work done by each worker with timing metrics.
+    """
+    worker_id = fields.CharField(max_length=255, pk=True)
+    total_jobs = fields.IntField(default=0)
+    total_processing_time_ms = fields.IntField(default=0)
+    total_queue_wait_time_ms = fields.IntField(default=0)
+    last_seen = fields.DatetimeField(auto_now=True)
+    
+    @property
+    def avg_processing_time_ms(self) -> float:
+        """Average processing time per domain in milliseconds."""
+        if self.total_jobs == 0:
+            return 0.0
+        return self.total_processing_time_ms / self.total_jobs
+    
+    @property
+    def avg_queue_wait_time_ms(self) -> float:
+        """Average queue wait time per domain in milliseconds."""
+        if self.total_jobs == 0:
+            return 0.0
+        return self.total_queue_wait_time_ms / self.total_jobs
+
+    class Meta:
+        table = "worker_metrics"
+
+
+class QueueSnapshot(Model):
+    """
+    Periodic snapshots of queue depth for more accurate monitoring.
+    Recorded when jobs are enqueued, not just at suggestion start.
+    """
+    id = fields.IntField(pk=True)
+    timestamp = fields.DatetimeField(auto_now_add=True)
+    queue_depth = fields.IntField()
+    active_workers = fields.IntField(default=0)
+    
+    class Meta:
+        table = "queue_snapshots"
+        indexes = [
+            ("timestamp",),
         ]
