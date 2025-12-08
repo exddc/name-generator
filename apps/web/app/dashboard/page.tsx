@@ -68,7 +68,7 @@ export default function Dashboard() {
     const { data: session, isPending } = useSession();
     const router = useRouter();
     const [isCheckingAccess, setIsCheckingAccess] = useState(true);
-    const [timeRange, setTimeRange] = useState<'24h' | 'all'>('24h');
+    const [timeRange, setTimeRange] = useState<'1h' | '24h' | 'all'>('1h');
     const [summary24h, setSummary24h] = useState<MetricsSummaryResponse | null>(
         null
     );
@@ -171,7 +171,7 @@ export default function Dashboard() {
                     .finally(() => setIsLoadingHistory(false));
 
                 // Queue
-                const queueRange = timeRange === '24h' ? '24h' : '24h';
+                const queueRange = timeRange === '1h' ? '1h' : '24h';
                 setIsLoadingQueue(true);
                 fetch(`${API_URL}/v1/metrics/queue?range=${queueRange}`)
                     .then((res) => {
@@ -231,13 +231,14 @@ export default function Dashboard() {
                     <Select
                         value={timeRange}
                         onValueChange={(val) =>
-                            setTimeRange(val as '24h' | 'all')
+                            setTimeRange(val as '1h' | '24h' | 'all')
                         }
                     >
                         <SelectTrigger className="w-[180px]">
                             <SelectValue placeholder="Select range" />
                         </SelectTrigger>
                         <SelectContent>
+                            <SelectItem value="1h">Last 1 Hour</SelectItem>
                             <SelectItem value="24h">Last 24 Hours</SelectItem>
                             <SelectItem value="all">All Time</SelectItem>
                         </SelectContent>
@@ -1225,9 +1226,9 @@ function ChartCard({
     );
 }
 
-function formatXAxisDate(value: string, range: '24h' | 'all') {
+function formatXAxisDate(value: string, range: '1h' | '24h' | 'all') {
     const date = new Date(value);
-    if (range === '24h') {
+    if (range === '1h' || range === '24h') {
         return date.toLocaleTimeString(undefined, {
             hour: '2-digit',
             minute: '2-digit',

@@ -115,9 +115,11 @@ async def _get_summary_metrics(cutoff_date: Optional[datetime] = None) -> Metric
     )
 
 @router.get("/metrics/summary", response_model=MetricsSummaryResponse)
-async def get_metrics_summary(range: str = Query("all", regex="^(all|24h|30d)$")):
+async def get_metrics_summary(range: str = Query("all", regex="^(all|1h|24h|30d)$")):
     cutoff_date = None
-    if range == "24h":
+    if range == "1h":
+        cutoff_date = datetime.now(timezone.utc) - timedelta(hours=1)
+    elif range == "24h":
         cutoff_date = datetime.now(timezone.utc) - timedelta(hours=24)
     elif range == "30d":
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
@@ -125,9 +127,11 @@ async def get_metrics_summary(range: str = Query("all", regex="^(all|24h|30d)$")
     return await _get_summary_metrics(cutoff_date)
 
 @router.get("/metrics/history", response_model=MetricsHistoryResponse)
-async def get_metrics_history(range: str = Query("30d", regex="^(all|24h|30d)$")):
+async def get_metrics_history(range: str = Query("30d", regex="^(all|1h|24h|30d)$")):
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
-    if range == "24h":
+    if range == "1h":
+        cutoff_date = datetime.now(timezone.utc) - timedelta(hours=1)
+    elif range == "24h":
         cutoff_date = datetime.now(timezone.utc) - timedelta(hours=24)
     elif range == "all":
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=90)
@@ -138,7 +142,11 @@ async def get_metrics_history(range: str = Query("30d", regex="^(all|24h|30d)$")
     stats_map: Dict[str, Dict[str, Any]] = {}
     
     for m in recent_metrics:
-        if range == "24h":
+        if range == "1h":
+            # 5-minute grouping for 1h view
+            minute_bucket = (m.created_at.minute // 5) * 5
+            key_str = m.created_at.strftime(f"%Y-%m-%d %H:{minute_bucket:02d}")
+        elif range == "24h":
             # Hourly grouping
             key_str = m.created_at.strftime("%Y-%m-%d %H:00")
         else:
@@ -281,8 +289,8 @@ async def get_metrics_workers():
     worker_metrics_db = await WorkerMetrics.all()
     total_jobs_all_workers = sum(w.total_jobs for w in worker_metrics_db)
     
-    # Worker is active if seen within the last hour
-    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    # Worker is active if seen within the last 30 minutes
+    timedelta_worker = datetime.now(timezone.utc) - timedelta(minutes=30)
     
     worker_stats: List[WorkerStat] = []
     active_count = 0
@@ -290,7 +298,7 @@ async def get_metrics_workers():
     total_jobs_active = 0
     
     for w in worker_metrics_db:
-        is_active = w.last_seen >= one_hour_ago if w.last_seen else False
+        is_active = w.last_seen >= timedelta_worker if w.last_seen else False
         percentage = (w.total_jobs / total_jobs_all_workers * 100) if total_jobs_all_workers > 0 else 0
         
         # Handle potentially missing columns (pre-migration)
