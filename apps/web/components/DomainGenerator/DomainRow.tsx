@@ -8,6 +8,7 @@ import {
     DomainStatusColor,
     RatingRequestBody,
     FavoriteRequestBody,
+    SimilarDomainsRequestBody,
 } from '@/lib/types';
 import { cn, getAnonRandomId, getDomainRegistrarUrl } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
@@ -22,12 +23,15 @@ import {
     ThumbsDown,
     ThumbsUp,
     RefreshCw,
+    Split,
+    Globe,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '../ui/button';
 
 // Constants
 const DOMAIN_VARIANTS_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/variants/stream`;
+const DOMAIN_SIMILAR_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/similar/stream`;
 const RATING_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
 const RATINGS_GET_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
 const FAVORITE_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/user/favorite`;
@@ -35,17 +39,41 @@ const FAVORITE_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/user/favorite`;
 // Props
 type DomainRowProps = {
     domain: Domain;
+    onVote?: (domainName: string, vote: 1 | -1) => void;
+    onFavorite?: (domainName: string, isFavorited: boolean) => void;
 };
 
-export default function DomainRow({ domain }: DomainRowProps) {
+type ActiveMode = 'none' | 'variants' | 'similar';
+
+export default function DomainRow({
+    domain,
+    onVote,
+    onFavorite,
+}: DomainRowProps) {
     const { data: session } = useSession();
     const [open, setOpen] = useState(false);
+    const [activeMode, setActiveMode] = useState<ActiveMode>('none');
+
+    // Variants
     const [loading, setLoading] = useState(false);
     const [variants, setVariants] = useState<Domain[]>([]);
     const [displayCount, setDisplayCount] = useState(5);
     const [fetchLimit, setFetchLimit] = useState(5);
     const [isStreamFinished, setIsStreamFinished] = useState(true);
     const [error, setError] = useState(false);
+    const [variantsInitialized, setVariantsInitialized] = useState(false);
+
+    // Similar domains
+    const [similarLoading, setSimilarLoading] = useState(false);
+    const [similarDomains, setSimilarDomains] = useState<Domain[]>([]);
+    const [similarDisplayCount, setSimilarDisplayCount] = useState(5);
+    const [similarFetchLimit, setSimilarFetchLimit] = useState(5);
+    const [isSimilarStreamFinished, setIsSimilarStreamFinished] =
+        useState(true);
+    const [similarError, setSimilarError] = useState(false);
+    const [similarInitialized, setSimilarInitialized] = useState(false);
+
+    // Voting/favorites data
     const [votingDomain, setVotingDomain] = useState<string | null>(null);
     const [domainVotes, setDomainVotes] = useState<Map<string, 1 | -1>>(
         new Map()
@@ -58,6 +86,7 @@ export default function DomainRow({ domain }: DomainRowProps) {
     );
 
     const abortControllerRef = useRef<AbortController | null>(null);
+    const similarAbortControllerRef = useRef<AbortController | null>(null);
 
     // Fetch existing ratings
     useEffect(() => {
@@ -208,9 +237,16 @@ export default function DomainRow({ domain }: DomainRowProps) {
                                             (d) => d.domain === item.domain
                                         );
                                         if (existingIndex < 0) {
-                                            next.push(item);
+                                            next.unshift({
+                                                ...item,
+                                                isNew: true,
+                                            });
                                         } else {
-                                            next[existingIndex] = item;
+                                            next[existingIndex] = {
+                                                ...item,
+                                                isNew: next[existingIndex]
+                                                    .isNew,
+                                            };
                                         }
                                     }
                                     return next;
@@ -269,22 +305,207 @@ export default function DomainRow({ domain }: DomainRowProps) {
     };
 
     useEffect(() => {
-        if (!open) {
-            abortControllerRef.current?.abort();
-            return;
+        if (fetchLimit > 5 && variantsInitialized) {
+            // Clear isNew from existing variants
+            setVariants((prev) => prev.map((d) => ({ ...d, isNew: false })));
+            fetchVariants();
         }
-
-        // Prevent re-fetching on re-open if we already have the initial set of variants.
-        if (variants.length > 0 && fetchLimit === 5) {
-            return;
-        }
-
-        fetchVariants();
 
         return () => {
             abortControllerRef.current?.abort();
         };
-    }, [open, domain.domain, fetchLimit]);
+    }, [fetchLimit]);
+
+    const handleCheckOtherTlds = () => {
+        setActiveMode('variants');
+        // Clear isNew from existing variants
+        setVariants((prev) => prev.map((d) => ({ ...d, isNew: false })));
+        setVariantsInitialized(true);
+        fetchVariants();
+    };
+
+    const handleGenerateSimilar = () => {
+        setActiveMode('similar');
+        // Clear isNew from existing similar domains
+        setSimilarDomains((prev) => prev.map((d) => ({ ...d, isNew: false })));
+        setSimilarInitialized(true);
+        fetchSimilarDomains();
+    };
+
+    const fetchSimilarDomains = async () => {
+        setSimilarLoading(true);
+        setIsSimilarStreamFinished(false);
+        setSimilarError(false);
+
+        similarAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        similarAbortControllerRef.current = controller;
+
+        try {
+            const requestBody: SimilarDomainsRequestBody = {
+                source_domain: domain.domain,
+                count: similarFetchLimit,
+            };
+
+            if (session?.user?.id) {
+                requestBody.user_id = session.user.id;
+            }
+
+            const response = await fetch(DOMAIN_SIMILAR_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+                signal: controller.signal,
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            if (!response.body) {
+                throw new Error('No response body');
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let streamCompleted = false;
+
+            const processBuffer = () => {
+                let delimiterIndex = buffer.indexOf('\n\n');
+
+                while (delimiterIndex !== -1) {
+                    const rawEvent = buffer.slice(0, delimiterIndex).trim();
+                    buffer = buffer.slice(delimiterIndex + 2);
+
+                    if (!rawEvent) {
+                        delimiterIndex = buffer.indexOf('\n\n');
+                        continue;
+                    }
+
+                    let eventType: string | null = null;
+                    let dataPayload = '';
+
+                    for (const rawLine of rawEvent.split('\n')) {
+                        const line = rawLine.trim();
+                        if (!line) {
+                            continue;
+                        }
+
+                        if (line.startsWith('event:')) {
+                            eventType = line.substring(6).trim();
+                        } else if (line.startsWith('data:')) {
+                            dataPayload += line.substring(5).trim();
+                        }
+                    }
+
+                    if (!eventType) {
+                        delimiterIndex = buffer.indexOf('\n\n');
+                        continue;
+                    }
+
+                    if (eventType === 'suggestions') {
+                        if (!dataPayload) {
+                            delimiterIndex = buffer.indexOf('\n\n');
+                            continue;
+                        }
+
+                        try {
+                            const payload = JSON.parse(dataPayload);
+                            const applySuggestions = (
+                                items: Domain[] | undefined
+                            ) => {
+                                if (!items?.length) {
+                                    return;
+                                }
+                                setSimilarDomains((prev) => {
+                                    const next = [...prev];
+                                    for (const item of items) {
+                                        const existingIndex = next.findIndex(
+                                            (d) => d.domain === item.domain
+                                        );
+                                        if (existingIndex < 0) {
+                                            next.unshift({
+                                                ...item,
+                                                isNew: true,
+                                            });
+                                        } else {
+                                            next[existingIndex] = {
+                                                ...item,
+                                                isNew: next[existingIndex]
+                                                    .isNew,
+                                            };
+                                        }
+                                    }
+                                    return next;
+                                });
+                            };
+
+                            applySuggestions(payload.new);
+                            applySuggestions(payload.updates);
+                        } catch (parseError) {
+                            console.error(
+                                'Failed to parse similar suggestions event:',
+                                parseError
+                            );
+                        }
+                    } else if (eventType === 'complete') {
+                        setIsSimilarStreamFinished(true);
+                        setSimilarLoading(false);
+                        streamCompleted = true;
+                        return;
+                    }
+
+                    delimiterIndex = buffer.indexOf('\n\n');
+                }
+            };
+
+            while (!streamCompleted) {
+                const { done, value } = await reader.read();
+
+                if (value) {
+                    buffer += decoder.decode(value, { stream: true });
+                    buffer = buffer.replace(/\r/g, '');
+                    processBuffer();
+                    if (streamCompleted) {
+                        break;
+                    }
+                }
+
+                if (done) {
+                    buffer += decoder.decode();
+                    buffer = buffer.replace(/\r/g, '');
+                    processBuffer();
+                    break;
+                }
+            }
+        } catch (error) {
+            if ((error as Error).name !== 'AbortError') {
+                console.warn('Failed to fetch similar domains:', error);
+                setSimilarError(true);
+            }
+        } finally {
+            if (!controller.signal.aborted) {
+                setSimilarLoading(false);
+                setIsSimilarStreamFinished(true);
+            }
+        }
+    };
+    useEffect(() => {
+        if (similarFetchLimit > 5 && similarInitialized) {
+            // Clear isNew from existing similar domains
+            setSimilarDomains((prev) =>
+                prev.map((d) => ({ ...d, isNew: false }))
+            );
+            fetchSimilarDomains();
+        }
+
+        return () => {
+            similarAbortControllerRef.current?.abort();
+        };
+    }, [similarFetchLimit]);
 
     const handleShowMore = () => {
         setDisplayCount((prev) => prev + 5);
@@ -296,6 +517,17 @@ export default function DomainRow({ domain }: DomainRowProps) {
 
     const canShowMoreLocal = displayCount < variants.length;
     const canGenerateMore = isStreamFinished && !loading;
+
+    const handleSimilarShowMore = () => {
+        setSimilarDisplayCount((prev) => prev + 5);
+    };
+
+    const handleSimilarGenerateMore = () => {
+        setSimilarFetchLimit((prev) => prev + 5);
+    };
+
+    const canShowMoreSimilar = similarDisplayCount < similarDomains.length;
+    const canGenerateMoreSimilar = isSimilarStreamFinished && !similarLoading;
 
     const handleVote = async (domain: string, vote: number) => {
         if (votingDomain === domain) {
@@ -340,6 +572,8 @@ export default function DomainRow({ domain }: DomainRowProps) {
                 next.set(domain, vote as 1 | -1);
                 return next;
             });
+
+            onVote?.(domain, vote as 1 | -1);
         } catch (error) {
             console.error('Failed to submit vote:', error);
             toast.error('Failed to submit vote. Please try again.');
@@ -409,6 +643,8 @@ export default function DomainRow({ domain }: DomainRowProps) {
                 }
                 return next;
             });
+
+            onFavorite?.(domain, action === 'fav');
 
             // Show success toast
             if (action === 'fav') {
@@ -548,190 +784,439 @@ export default function DomainRow({ domain }: DomainRowProps) {
                         style={{ overflow: 'hidden' }}
                     >
                         <div className="border-t border-neutral-300 pt-4 mt-2 grid grid-cols-1 gap-4">
-                            {variants
-                                .slice(0, displayCount)
-                                .map((variant, index) => (
-                                    <div
-                                        key={index}
-                                        className="flex justify-between items-center pr-8"
-                                    >
-                                        <div className="flex flex-row items-center justify-start gap-2">
-                                            <Link
-                                                href={
-                                                    'https://' + variant.domain
-                                                }
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="font-normal text-sm md:text-base"
+                            {/* Action Buttons */}
+                            <div className="flex items-center justify-center gap-3">
+                                <Button
+                                    size="sm"
+                                    variant={
+                                        activeMode === 'variants'
+                                            ? 'default'
+                                            : 'outline'
+                                    }
+                                    className="gap-1.5 text-xs"
+                                    onClick={handleCheckOtherTlds}
+                                    disabled={loading}
+                                >
+                                    <Globe className="size-3" />
+                                    Check other TLDs
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant={
+                                        activeMode === 'similar'
+                                            ? 'default'
+                                            : 'outline'
+                                    }
+                                    className="gap-1.5 text-xs"
+                                    onClick={handleGenerateSimilar}
+                                    disabled={similarLoading}
+                                >
+                                    <Split className="size-3" />
+                                    Generate similar
+                                </Button>
+                            </div>
+
+                            {/* Variants Section */}
+                            {(variants.length > 0 || loading) && (
+                                <div className="space-y-2">
+                                    <div className="text-xs text-neutral-500 font-medium flex items-center gap-1.5">
+                                        <Globe className="size-3" />
+                                        Other TLDs
+                                    </div>
+                                    {variants
+                                        .slice(0, displayCount)
+                                        .map((variant, index) => (
+                                            <div
+                                                key={`variant-${index}`}
+                                                className="flex justify-between items-center pr-8"
                                             >
-                                                {variant.domain}
-                                            </Link>
-                                            <span
-                                                className={cn(
-                                                    DomainStatusColor[
-                                                        variant.status
-                                                    ],
-                                                    'text-neutral-800 font-semibold text-[0.4rem] border px-1 flex items-center h-[14px] rounded-xl'
-                                                )}
-                                            >
-                                                {variant.status}
-                                            </span>
-                                            <div className="flex items-center gap-1">
-                                                <button
-                                                    className={cn(
-                                                        'hover:cursor-pointer hover:scale-110 transition-all duration-300',
-                                                        getVoteForDomain(
-                                                            variant.domain
-                                                        ) === 1 &&
-                                                            'text-green-600'
+                                                <div className="flex flex-row items-center justify-start gap-2">
+                                                    {variant.isNew && (
+                                                        <div className="h-1.5 w-1.5 min-h-[6px] min-w-[6px] rounded-full bg-sky-500 animate-pulse" />
                                                     )}
-                                                    onClick={() =>
-                                                        handleVote(
-                                                            variant.domain,
-                                                            1
-                                                        )
-                                                    }
-                                                >
-                                                    <ThumbsUp
-                                                        className={cn(
-                                                            'size-3',
-                                                            getVoteForDomain(
-                                                                variant.domain
-                                                            ) === 1 &&
-                                                                'text-green-600'
-                                                        )}
-                                                        strokeWidth={1.75}
-                                                    />
-                                                </button>
-                                                <button
-                                                    className={cn(
-                                                        'hover:cursor-pointer hover:scale-110 transition-all duration-300',
-                                                        getVoteForDomain(
+                                                    <Link
+                                                        href={
+                                                            'https://' +
                                                             variant.domain
-                                                        ) === -1 &&
-                                                            'text-red-600'
-                                                    )}
-                                                    onClick={() =>
-                                                        handleVote(
-                                                            variant.domain,
-                                                            -1
-                                                        )
-                                                    }
-                                                >
-                                                    <ThumbsDown
+                                                        }
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="font-normal text-sm md:text-base"
+                                                    >
+                                                        {variant.domain}
+                                                    </Link>
+                                                    <span
                                                         className={cn(
-                                                            'size-3',
-                                                            getVoteForDomain(
-                                                                variant.domain
-                                                            ) === -1 &&
-                                                                'text-red-600'
+                                                            DomainStatusColor[
+                                                                variant.status
+                                                            ],
+                                                            'text-neutral-800 font-semibold text-[0.4rem] border px-1 flex items-center h-[14px] rounded-xl'
                                                         )}
-                                                        strokeWidth={1.75}
-                                                    />
-                                                </button>
+                                                    >
+                                                        {variant.status}
+                                                    </span>
+                                                    <div className="flex items-center gap-1">
+                                                        <button
+                                                            className={cn(
+                                                                'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                                                getVoteForDomain(
+                                                                    variant.domain
+                                                                ) === 1 &&
+                                                                    'text-green-600'
+                                                            )}
+                                                            onClick={() =>
+                                                                handleVote(
+                                                                    variant.domain,
+                                                                    1
+                                                                )
+                                                            }
+                                                        >
+                                                            <ThumbsUp
+                                                                className={cn(
+                                                                    'size-3',
+                                                                    getVoteForDomain(
+                                                                        variant.domain
+                                                                    ) === 1 &&
+                                                                        'text-green-600'
+                                                                )}
+                                                                strokeWidth={
+                                                                    1.75
+                                                                }
+                                                            />
+                                                        </button>
+                                                        <button
+                                                            className={cn(
+                                                                'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                                                getVoteForDomain(
+                                                                    variant.domain
+                                                                ) === -1 &&
+                                                                    'text-red-600'
+                                                            )}
+                                                            onClick={() =>
+                                                                handleVote(
+                                                                    variant.domain,
+                                                                    -1
+                                                                )
+                                                            }
+                                                        >
+                                                            <ThumbsDown
+                                                                className={cn(
+                                                                    'size-3',
+                                                                    getVoteForDomain(
+                                                                        variant.domain
+                                                                    ) === -1 &&
+                                                                        'text-red-600'
+                                                                )}
+                                                                strokeWidth={
+                                                                    1.75
+                                                                }
+                                                            />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-4 items-center justify-end">
+                                                    <button
+                                                        type="button"
+                                                        className={cn(
+                                                            'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                                            isDomainFavorited(
+                                                                variant.domain
+                                                            ) && 'text-red-600',
+                                                            !session?.user
+                                                                ?.id &&
+                                                                'opacity-50'
+                                                        )}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            handleFavorite(
+                                                                variant.domain
+                                                            );
+                                                        }}
+                                                    >
+                                                        <Heart
+                                                            className={cn(
+                                                                'size-4 pointer-events-none',
+                                                                isDomainFavorited(
+                                                                    variant.domain
+                                                                ) &&
+                                                                    'text-red-600 fill-red-600'
+                                                            )}
+                                                            strokeWidth={1.75}
+                                                            fill={
+                                                                isDomainFavorited(
+                                                                    variant.domain
+                                                                )
+                                                                    ? 'currentColor'
+                                                                    : 'none'
+                                                            }
+                                                        />
+                                                    </button>
+                                                    <Link
+                                                        className="hover:cursor-pointer hover:scale-110 transition-all duration-300"
+                                                        href={getDomainRegistrarUrl(
+                                                            variant.domain
+                                                        )}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                    >
+                                                        <ShoppingCart
+                                                            className="size-4"
+                                                            strokeWidth={1.75}
+                                                        />
+                                                    </Link>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="flex gap-4 items-center justify-end">
-                                            <button
-                                                type="button"
-                                                className={cn(
-                                                    'hover:cursor-pointer hover:scale-110 transition-all duration-300',
-                                                    isDomainFavorited(
-                                                        variant.domain
-                                                    ) && 'text-red-600',
-                                                    !session?.user?.id &&
-                                                        'opacity-50'
-                                                )}
-                                                onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
+                                        ))}
 
-                                                    handleFavorite(
-                                                        variant.domain
-                                                    );
-                                                }}
+                                    {error ? (
+                                        <div className="flex flex-col items-center justify-center py-2 gap-2">
+                                            <div className="text-red-500 flex items-center gap-2 text-xs">
+                                                <span>Failed to load</span>
+                                            </div>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-6 text-xs gap-1"
+                                                onClick={() => fetchVariants()}
                                             >
-                                                <Heart
-                                                    className={cn(
-                                                        'size-4 pointer-events-none',
-                                                        isDomainFavorited(
-                                                            variant.domain
-                                                        ) &&
-                                                            'text-red-600 fill-red-600'
-                                                    )}
-                                                    strokeWidth={1.75}
-                                                    fill={
-                                                        isDomainFavorited(
-                                                            variant.domain
-                                                        )
-                                                            ? 'currentColor'
-                                                            : 'none'
-                                                    }
-                                                />
-                                            </button>
-                                            <Link
-                                                className="hover:cursor-pointer hover:scale-110 transition-all duration-300"
-                                                href={getDomainRegistrarUrl(
-                                                    variant.domain
-                                                )}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                            >
-                                                <ShoppingCart
-                                                    className="size-4"
-                                                    strokeWidth={1.75}
-                                                />
-                                            </Link>
+                                                <RefreshCw className="size-3" />
+                                                Retry
+                                            </Button>
                                         </div>
-                                    </div>
-                                ))}
-
-                            {error ? (
-                                <div className="flex flex-col items-center justify-center py-4 gap-4">
-                                    <div className="text-red-500 flex items-center gap-2 text-sm">
-                                        <span>Failed to load variants</span>
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-7 text-xs gap-1.5"
-                                        onClick={() => fetchVariants()}
-                                    >
-                                        <RefreshCw className="size-3" />
-                                        Try again
-                                    </Button>
+                                    ) : loading ? (
+                                        <span className="flex items-center justify-center text-xs py-1 animate-pulse">
+                                            Checking TLDs...
+                                        </span>
+                                    ) : variants.length > 0 &&
+                                      (canShowMoreLocal || canGenerateMore) ? (
+                                        <div className="w-full flex items-center justify-center pt-1">
+                                            {canShowMoreLocal ? (
+                                                <Button
+                                                    onClick={handleShowMore}
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-6 text-xs"
+                                                >
+                                                    Show more
+                                                </Button>
+                                            ) : (
+                                                <Button
+                                                    onClick={handleGenerateMore}
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-6 text-xs"
+                                                >
+                                                    Generate more TLDs
+                                                </Button>
+                                            )}
+                                        </div>
+                                    ) : null}
                                 </div>
-                            ) : loading && variants.length === 0 ? (
-                                <span className="flex items-center justify-center text-xs py-1 animate-pulse">
-                                    Checking other top-level domains...
-                                </span>
-                            ) : (
-                                <div className="w-full flex items-center justify-center pt-2">
-                                    {canShowMoreLocal ? (
-                                        <Button
-                                            onClick={handleShowMore}
-                                            size="sm"
-                                        >
-                                            Show more
-                                        </Button>
-                                    ) : canGenerateMore &&
-                                      variants.length > 0 ? (
-                                        <Button
-                                            onClick={handleGenerateMore}
-                                            size="sm"
-                                        >
-                                            Generate more
-                                        </Button>
-                                    ) : loading && variants.length > 0 ? (
-                                        <span className="text-xs animate-pulse">
-                                            Generating...
+                            )}
+
+                            {/* Similar Domains Section */}
+                            {(similarDomains.length > 0 || similarLoading) && (
+                                <div className="space-y-2">
+                                    <div className="text-xs text-neutral-500 font-medium flex items-center gap-1.5">
+                                        <Split className="size-3" />
+                                        Similar Domains
+                                    </div>
+                                    {similarDomains
+                                        .slice(0, similarDisplayCount)
+                                        .map((similar, index) => (
+                                            <div
+                                                key={`similar-${index}`}
+                                                className="flex justify-between items-center pr-8"
+                                            >
+                                                <div className="flex flex-row items-center justify-start gap-2">
+                                                    {similar.isNew && (
+                                                        <div className="h-1.5 w-1.5 min-h-[6px] min-w-[6px] rounded-full bg-sky-500 animate-pulse" />
+                                                    )}
+                                                    <Link
+                                                        href={
+                                                            'https://' +
+                                                            similar.domain
+                                                        }
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="font-normal text-sm md:text-base"
+                                                    >
+                                                        {similar.domain}
+                                                    </Link>
+                                                    <span
+                                                        className={cn(
+                                                            DomainStatusColor[
+                                                                similar.status
+                                                            ],
+                                                            'text-neutral-800 font-semibold text-[0.4rem] border px-1 flex items-center h-[14px] rounded-xl'
+                                                        )}
+                                                    >
+                                                        {similar.status}
+                                                    </span>
+                                                    <div className="flex items-center gap-1">
+                                                        <button
+                                                            className={cn(
+                                                                'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                                                getVoteForDomain(
+                                                                    similar.domain
+                                                                ) === 1 &&
+                                                                    'text-green-600'
+                                                            )}
+                                                            onClick={() =>
+                                                                handleVote(
+                                                                    similar.domain,
+                                                                    1
+                                                                )
+                                                            }
+                                                        >
+                                                            <ThumbsUp
+                                                                className={cn(
+                                                                    'size-3',
+                                                                    getVoteForDomain(
+                                                                        similar.domain
+                                                                    ) === 1 &&
+                                                                        'text-green-600'
+                                                                )}
+                                                                strokeWidth={
+                                                                    1.75
+                                                                }
+                                                            />
+                                                        </button>
+                                                        <button
+                                                            className={cn(
+                                                                'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                                                getVoteForDomain(
+                                                                    similar.domain
+                                                                ) === -1 &&
+                                                                    'text-red-600'
+                                                            )}
+                                                            onClick={() =>
+                                                                handleVote(
+                                                                    similar.domain,
+                                                                    -1
+                                                                )
+                                                            }
+                                                        >
+                                                            <ThumbsDown
+                                                                className={cn(
+                                                                    'size-3',
+                                                                    getVoteForDomain(
+                                                                        similar.domain
+                                                                    ) === -1 &&
+                                                                        'text-red-600'
+                                                                )}
+                                                                strokeWidth={
+                                                                    1.75
+                                                                }
+                                                            />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-4 items-center justify-end">
+                                                    <button
+                                                        type="button"
+                                                        className={cn(
+                                                            'hover:cursor-pointer hover:scale-110 transition-all duration-300',
+                                                            isDomainFavorited(
+                                                                similar.domain
+                                                            ) && 'text-red-600',
+                                                            !session?.user
+                                                                ?.id &&
+                                                                'opacity-50'
+                                                        )}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            handleFavorite(
+                                                                similar.domain
+                                                            );
+                                                        }}
+                                                    >
+                                                        <Heart
+                                                            className={cn(
+                                                                'size-4 pointer-events-none',
+                                                                isDomainFavorited(
+                                                                    similar.domain
+                                                                ) &&
+                                                                    'text-red-600 fill-red-600'
+                                                            )}
+                                                            strokeWidth={1.75}
+                                                            fill={
+                                                                isDomainFavorited(
+                                                                    similar.domain
+                                                                )
+                                                                    ? 'currentColor'
+                                                                    : 'none'
+                                                            }
+                                                        />
+                                                    </button>
+                                                    <Link
+                                                        className="hover:cursor-pointer hover:scale-110 transition-all duration-300"
+                                                        href={getDomainRegistrarUrl(
+                                                            similar.domain
+                                                        )}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                    >
+                                                        <ShoppingCart
+                                                            className="size-4"
+                                                            strokeWidth={1.75}
+                                                        />
+                                                    </Link>
+                                                </div>
+                                            </div>
+                                        ))}
+
+                                    {similarError ? (
+                                        <div className="flex flex-col items-center justify-center py-2 gap-2">
+                                            <div className="text-red-500 flex items-center gap-2 text-xs">
+                                                <span>Failed to load</span>
+                                            </div>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-6 text-xs gap-1"
+                                                onClick={() =>
+                                                    fetchSimilarDomains()
+                                                }
+                                            >
+                                                <RefreshCw className="size-3" />
+                                                Retry
+                                            </Button>
+                                        </div>
+                                    ) : similarLoading ? (
+                                        <span className="flex items-center justify-center text-xs py-1 animate-pulse">
+                                            Finding similar domains...
                                         </span>
-                                    ) : !loading &&
-                                      variants.length === 0 &&
-                                      isStreamFinished ? (
-                                        <span className="text-xs">
-                                            No other TLDs found.
-                                        </span>
+                                    ) : similarDomains.length > 0 &&
+                                      (canShowMoreSimilar ||
+                                          canGenerateMoreSimilar) ? (
+                                        <div className="w-full flex items-center justify-center pt-1">
+                                            {canShowMoreSimilar ? (
+                                                <Button
+                                                    onClick={
+                                                        handleSimilarShowMore
+                                                    }
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-6 text-xs"
+                                                >
+                                                    Show more
+                                                </Button>
+                                            ) : (
+                                                <Button
+                                                    onClick={
+                                                        handleSimilarGenerateMore
+                                                    }
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-6 text-xs"
+                                                >
+                                                    Generate more similar
+                                                </Button>
+                                            )}
+                                        </div>
                                     ) : null}
                                 </div>
                             )}

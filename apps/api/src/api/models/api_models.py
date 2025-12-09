@@ -54,11 +54,27 @@ class DomainSuggestion(BaseModel):
     created_at: datetime.datetime
     updated_at: datetime.datetime
 
+class UserPreferencesInput(BaseModel):
+    """User preferences for personalized domain generation."""
+    liked_domains: List[str] = Field(default_factory=list, description="Domains the user upvoted")
+    disliked_domains: List[str] = Field(default_factory=list, description="Domains the user downvoted")
+    favorited_domains: List[str] = Field(default_factory=list, description="User's favorited domains")
+
+
 class RequestDomainSuggestion(BaseModel):
     description: str
     count: int = Field(default=10, ge=1, le=100)
     user_id: str | None = None
     creative: bool = Field(default=False, description="Use creative/lexicon prompt type instead of legacy")
+    personalized: bool = Field(default=False, description="Use personalized prompt with user preferences")
+    preferences: UserPreferencesInput | None = Field(default=None, description="User preferences for personalized generation")
+
+
+class RequestSimilarDomains(BaseModel):
+    """Request body for generating similar domains to a source domain."""
+    source_domain: str = Field(description="The domain to generate similar names for")
+    count: int = Field(default=10, ge=1, le=100)
+    user_id: str | None = None
 
 class ResponseDomainSuggestion(BaseModel):
     suggestions: List[DomainSuggestion]

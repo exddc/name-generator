@@ -72,6 +72,27 @@ export type FavoriteRequestBody = {
     action: 'fav' | 'unfav';
 }
 
+export type UserPreferencesInput = {
+    liked_domains: string[];
+    disliked_domains: string[];
+    favorited_domains: string[];
+}
+
+export type PersonalizedSuggestionRequestBody = {
+    description: string;
+    count?: number;
+    user_id?: string;
+    creative?: boolean;
+    personalized: boolean;
+    preferences?: UserPreferencesInput;
+}
+
+export type SimilarDomainsRequestBody = {
+    source_domain: string;
+    count?: number;
+    user_id?: string;
+}
+
 export type TimeSeriesPoint = {
     date: string;
     requests: number;
