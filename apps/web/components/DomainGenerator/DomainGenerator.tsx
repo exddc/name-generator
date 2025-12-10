@@ -3,7 +3,13 @@
 // Libraries
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Domain, DomainStatus, StreamMessage, ApiError } from '@/lib/types';
+import {
+    Domain,
+    DomainStatus,
+    StreamMessage,
+    ApiError,
+    UserPreferencesInput,
+} from '@/lib/types';
 import { useSession } from '@/lib/auth-client';
 import { usePlausible } from 'next-plausible';
 import { toast } from '@/components/ui/sonner';
@@ -55,6 +61,14 @@ export default function DomainGenerator({
     const [registeredDomains, setRegisteredDomains] = useState<Domain[]>([]);
     const [unknownDomains, setUnknownDomains] = useState<Domain[]>([]);
 
+    // User votes for personalized suggestions
+    const [domainVotes, setDomainVotes] = useState<Map<string, 1 | -1>>(
+        new Map()
+    );
+    const [favoritedDomains, setFavoritedDomains] = useState<Set<string>>(
+        new Set()
+    );
+
     const abortControllerRef = useRef<AbortController | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -62,6 +76,30 @@ export default function DomainGenerator({
     const [isFreeOpen, setIsFreeOpen] = useState(true);
     const [isRegisteredOpen, setIsRegisteredOpen] = useState(false);
     const [isUnknownOpen, setIsUnknownOpen] = useState(false);
+
+    // Handlers for votes and favorites
+    const handleDomainVote = useCallback((domainName: string, vote: 1 | -1) => {
+        setDomainVotes((prev) => {
+            const next = new Map(prev);
+            next.set(domainName, vote);
+            return next;
+        });
+    }, []);
+
+    const handleDomainFavorite = useCallback(
+        (domainName: string, isFavorited: boolean) => {
+            setFavoritedDomains((prev) => {
+                const next = new Set(prev);
+                if (isFavorited) {
+                    next.add(domainName);
+                } else {
+                    next.delete(domainName);
+                }
+                return next;
+            });
+        },
+        []
+    );
 
     // Update userInput when initialSearch changes
     useEffect(() => {
@@ -127,7 +165,7 @@ export default function DomainGenerator({
     const handleApiError = useCallback((error: ApiError) => {
         setLastError(error);
         setCanRetry(error.retry_allowed);
-        
+
         // Show toast notification based on error type
         toast.error(error.message, {
             description: error.details || undefined,
@@ -138,7 +176,7 @@ export default function DomainGenerator({
     const handleRetry = useCallback(() => {
         setLastError(null);
         setCanRetry(false);
-        
+
         const controller = new AbortController();
         abortControllerRef.current = controller;
 
@@ -147,19 +185,51 @@ export default function DomainGenerator({
         setHasReceivedFirstResponse(false);
         setFirstResponseTime(null);
         setLoadingText('Retrying...');
-        
+
         fetchSuggestionsInternal(controller, false);
     }, [userInput, session?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    const buildPreferences = (): UserPreferencesInput | undefined => {
+        const likedDomains: string[] = [];
+        const dislikedDomains: string[] = [];
+
+        domainVotes.forEach((vote, domain) => {
+            if (vote === 1) {
+                likedDomains.push(domain);
+            } else if (vote === -1) {
+                dislikedDomains.push(domain);
+            }
+        });
+
+        const favoritedDomainsArray = Array.from(favoritedDomains);
+
+        if (
+            likedDomains.length === 0 &&
+            dislikedDomains.length === 0 &&
+            favoritedDomainsArray.length === 0
+        ) {
+            return undefined;
+        }
+
+        return {
+            liked_domains: likedDomains,
+            disliked_domains: dislikedDomains,
+            favorited_domains: favoritedDomainsArray,
+        };
+    };
+
     const fetchSuggestionsInternal = async (
         controller: AbortController,
-        creative: boolean = false
+        creative: boolean = false,
+        usePersonalized: boolean = false
     ) => {
         try {
             const requestBody: {
                 description: string;
                 user_id?: string;
                 creative?: boolean;
+                personalized?: boolean;
+                preferences?: UserPreferencesInput;
             } = {
                 description: userInput,
             };
@@ -170,6 +240,14 @@ export default function DomainGenerator({
 
             if (creative) {
                 requestBody.creative = true;
+            }
+
+            if (usePersonalized) {
+                const preferences = buildPreferences();
+                if (preferences) {
+                    requestBody.personalized = true;
+                    requestBody.preferences = preferences;
+                }
             }
 
             const response = await fetch(DOMAIN_SUGGESTION_URL, {
@@ -190,7 +268,8 @@ export default function DomainGenerator({
                     errorData = {
                         error: true,
                         code: 'internal_error' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-                        message: 'Failed to connect to the server. Please check your connection and try again.',
+                        message:
+                            'Failed to connect to the server. Please check your connection and try again.',
                         retry_allowed: true,
                     };
                 }
@@ -270,10 +349,15 @@ export default function DomainGenerator({
                             if (payload) {
                                 const errorPayload: ApiError = {
                                     error: true,
-                                    code: payload.code || 'internal_error' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-                                    message: payload.message || 'Failed to generate domains.',
+                                    code:
+                                        payload.code ||
+                                        ('internal_error' as any), // eslint-disable-line @typescript-eslint/no-explicit-any
+                                    message:
+                                        payload.message ||
+                                        'Failed to generate domains.',
                                     details: payload.details,
-                                    retry_allowed: payload.retry_allowed ?? true,
+                                    retry_allowed:
+                                        payload.retry_allowed ?? true,
                                 };
                                 handleApiError(errorPayload);
                             } else {
@@ -307,9 +391,11 @@ export default function DomainGenerator({
                 handleApiError({
                     error: true,
                     code: 'internal_error' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-                    message: error instanceof Error && error.message.includes('fetch')
-                        ? 'Unable to connect to the server. Please check your internet connection.'
-                        : 'An unexpected error occurred. Please try again.',
+                    message:
+                        error instanceof Error &&
+                        error.message.includes('fetch')
+                            ? 'Unable to connect to the server. Please check your internet connection.'
+                            : 'An unexpected error occurred. Please try again.',
                     retry_allowed: true,
                 });
             }
@@ -322,9 +408,10 @@ export default function DomainGenerator({
 
     const fetchSuggestions = async (
         controller: AbortController,
-        creative: boolean = false
+        creative: boolean = false,
+        usePersonalized: boolean = false
     ) => {
-        await fetchSuggestionsInternal(controller, creative);
+        await fetchSuggestionsInternal(controller, creative, usePersonalized);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -346,7 +433,11 @@ export default function DomainGenerator({
         setHasReceivedFirstResponse(false);
         setFirstResponseTime(null);
         setLoadingText('Generating domains...');
-        await fetchSuggestions(controller);
+
+        const usePersonalized =
+            isSubsequentSearch &&
+            (domainVotes.size > 0 || favoritedDomains.size > 0);
+        await fetchSuggestions(controller, false, usePersonalized);
     };
 
     const handleGenerateMore = async (creative: boolean = false) => {
@@ -364,7 +455,10 @@ export default function DomainGenerator({
         setHasReceivedFirstResponse(false);
         setFirstResponseTime(null);
         setLoadingText('Generating domains...');
-        await fetchSuggestions(controller, creative);
+
+        const usePersonalized =
+            !creative && (domainVotes.size > 0 || favoritedDomains.size > 0);
+        await fetchSuggestions(controller, creative, usePersonalized);
     };
 
     useEffect(() => {
@@ -405,28 +499,14 @@ export default function DomainGenerator({
     ]);
 
     useEffect(() => {
-        const sortDomains = (ds: Domain[]) => {
-            return ds.sort((a, b) => {
-                if (a.isNew && !b.isNew) return -1;
-                if (!a.isNew && b.isNew) return 1;
-                return 0;
-            });
-        };
-
         setFreeDomains(
-            sortDomains(
-                domains.filter((d) => d.status === DomainStatus.AVAILABLE)
-            )
+            domains.filter((d) => d.status === DomainStatus.AVAILABLE)
         );
         setRegisteredDomains(
-            sortDomains(
-                domains.filter((d) => d.status === DomainStatus.REGISTERED)
-            )
+            domains.filter((d) => d.status === DomainStatus.REGISTERED)
         );
         setUnknownDomains(
-            sortDomains(
-                domains.filter((d) => d.status === DomainStatus.UNKNOWN)
-            )
+            domains.filter((d) => d.status === DomainStatus.UNKNOWN)
         );
     }, [domains]);
 
@@ -580,6 +660,8 @@ export default function DomainGenerator({
                         isOpen={isFreeOpen}
                         onToggle={() => setIsFreeOpen((v) => !v)}
                         itemKeySuffix="free"
+                        onVote={handleDomainVote}
+                        onFavorite={handleDomainFavorite}
                     />
                     <DomainSection
                         title={`Registered Domains (${registeredDomains.length})`}
@@ -587,6 +669,8 @@ export default function DomainGenerator({
                         isOpen={isRegisteredOpen}
                         onToggle={() => setIsRegisteredOpen((v) => !v)}
                         itemKeySuffix="registered"
+                        onVote={handleDomainVote}
+                        onFavorite={handleDomainFavorite}
                     />
                     <DomainSection
                         title={`Other (${unknownDomains.length})`}
@@ -594,6 +678,8 @@ export default function DomainGenerator({
                         isOpen={isUnknownOpen}
                         onToggle={() => setIsUnknownOpen((v) => !v)}
                         itemKeySuffix="unknown"
+                        onVote={handleDomainVote}
+                        onFavorite={handleDomainFavorite}
                     />
                 </div>
             )}

@@ -19,6 +19,7 @@ from api.models.api_models import (
     DomainSuggestion,
     Domain as DomainModel,
     RequestDomainSuggestion,
+    RequestSimilarDomains,
     ResponseDomainSuggestion,
     ResponseDomain,
     ResponseDomainStatus,
@@ -34,7 +35,7 @@ from api.exceptions import (
     create_error_response,
 )
 from api.suggestor.groq import GroqSuggestor
-from api.suggestor.prompts import PromptType
+from api.suggestor.prompts import PromptType, UserPreferences, SimilarContext
 from api.suggestor.tlds import POPULAR_TLDS
 from api.utils import (
     store_suggestion_batch,
@@ -643,6 +644,15 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
         metrics.set_queue_depth(len(queue))
     except Exception:
         pass
+    
+    # Personalized
+    user_preferences: Optional[UserPreferences] = None
+    if request.personalized and request.preferences:
+        user_preferences = UserPreferences(
+            liked_domains=request.preferences.liked_domains,
+            disliked_domains=request.preferences.disliked_domains,
+            favorited_domains=request.preferences.favorited_domains,
+        )
 
     async def event_generator():
         retries = 0
@@ -651,7 +661,13 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
         available_count = 0
         domains_to_store: list[tuple[str, DomainStatus]] = []
         first_suggestion_sent = False
-        prompt_type = PromptType.LEXICON if request.creative else PromptType.LEGACY
+        
+        if request.personalized and user_preferences and user_preferences.has_preferences():
+            prompt_type = PromptType.PERSONALIZED
+        elif request.creative:
+            prompt_type = PromptType.LEXICON
+        else:
+            prompt_type = PromptType.LEGACY
         
         try:
             suggestion_db = await SuggestionDB.create(
@@ -684,7 +700,12 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
                 metrics.start_timer("llm")
                 metrics.increment_llm_call()
                 try:
-                    suggestions = await GroqSuggestor().generate(request.description, requested_count, prompt_type)
+                    suggestions = await GroqSuggestor().generate(
+                        request.description,
+                        requested_count,
+                        prompt_type,
+                        preferences=user_preferences,
+                    )
                 except DomainGeneratorException as e:
                     metrics.add_error(f"LLM error: {str(e)}")
                     metrics.stop_timer("llm")
@@ -867,6 +888,254 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
             
         except Exception as e:
             print(f"[Stream] Unexpected error: {e}")
+            error_response = create_error_response(
+                ErrorCode.INTERNAL_ERROR,
+                details="An unexpected error occurred. Please try again.",
+                retry_allowed=True
+            )
+            yield _format_sse("error", error_response.model_dump())
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.post("/similar/stream")
+async def suggest_similar_stream(request: RequestSimilarDomains) -> StreamingResponse:
+    """Stream domain suggestions that are similar to a source domain."""
+    requested_count = request.count or 10
+    max_retries = max(1, settings.max_suggestions_retries)
+
+    metrics = MetricsTracker()
+    try:
+        metrics.set_queue_depth(len(queue))
+    except Exception:
+        pass
+    
+    similar_context = SimilarContext(source_domain=request.source_domain)
+    domain_name = request.source_domain.split('.')[0] if '.' in request.source_domain else request.source_domain
+
+    async def event_generator():
+        retries = 0
+        accumulated: list[DomainSuggestion] = []
+        accumulated_lookup: dict[str, DomainSuggestion] = {}
+        available_count = 0
+        domains_to_store: list[tuple[str, DomainStatus]] = []
+        first_suggestion_sent = False
+        prompt_type = PromptType.SIMILAR
+        
+        try:
+            suggestion_db = await SuggestionDB.create(
+                description=f"Similar to {request.source_domain}",
+                count=requested_count,
+                model=settings.groq_model,
+                prompt=prompt_type.value,
+                user_id=request.user_id,
+            )
+        except Exception as e:
+            print(f"[Similar Stream] Failed to create suggestion record: {e}")
+            error_response = create_error_response(
+                ErrorCode.INTERNAL_ERROR,
+                details="Failed to initialize domain generation.",
+                retry_allowed=True
+            )
+            yield _format_sse("error", error_response.model_dump())
+            return
+
+        yield _format_sse(
+            "start",
+            {
+                "requested_count": requested_count,
+                "max_retries": max_retries,
+                "source_domain": request.source_domain,
+            },
+        )
+        
+        try:
+            while retries < max_retries:
+                metrics.start_timer("llm")
+                metrics.increment_llm_call()
+                try:
+                    suggestions = await GroqSuggestor().generate(
+                        domain_name,
+                        requested_count,
+                        prompt_type,
+                        similar_context=similar_context,
+                    )
+                except DomainGeneratorException as e:
+                    metrics.add_error(f"LLM error: {str(e)}")
+                    metrics.stop_timer("llm")
+                    error_response = ErrorResponse(
+                        code=e.code,
+                        message=e.user_message,
+                        details=e.details,
+                        retry_allowed=e.retry_allowed,
+                    )
+                    yield _format_sse("error", error_response.model_dump())
+                    return
+                except Exception as e:
+                    metrics.add_error(f"LLM error: {str(e)}")
+                    metrics.stop_timer("llm")
+                    error_response = create_error_response(
+                        ErrorCode.GENERATION_FAILED,
+                        details="An unexpected error occurred during domain generation.",
+                        retry_allowed=True
+                    )
+                    yield _format_sse("error", error_response.model_dump())
+                    return
+                finally:
+                    if metrics._timers.get("llm") is not None:
+                        metrics.stop_timer("llm")
+                
+                plain_domains = list(suggestions)
+                metrics.add_domains_generated(plain_domains)
+
+                domains_to_check = [
+                    domain
+                    for domain in plain_domains
+                    if domain not in accumulated_lookup
+                    or accumulated_lookup[domain].status is not DomainStatus.AVAILABLE
+                ]
+
+                if not domains_to_check:
+                    retries += 1
+                    metrics.increment_retry()
+                    await asyncio.sleep(0)
+                    continue
+
+                metrics.start_timer("worker")
+                metrics.increment_worker_job()
+                try:
+                    results = await enqueue_and_wait(domains_to_check, metrics)
+                except ServiceUnavailableError as e:
+                    metrics.stop_timer("worker")
+                    error_response = ErrorResponse(
+                        code=e.code,
+                        message=e.user_message,
+                        details=e.details,
+                        retry_allowed=True,
+                    )
+                    yield _format_sse("error", error_response.model_dump())
+                    return
+                except Exception as e:
+                    metrics.stop_timer("worker")
+                    print(f"[Similar Stream] Worker error: {e}")
+                    error_response = create_error_response(
+                        ErrorCode.SERVICE_UNAVAILABLE,
+                        details="Domain validation service is temporarily unavailable.",
+                        retry_allowed=True
+                    )
+                    yield _format_sse("error", error_response.model_dump())
+                    return
+                finally:
+                    if metrics._timers.get("worker") is not None:
+                        metrics.stop_timer("worker")
+                
+                status_lookup = {
+                    item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
+                    for item in results
+                    if isinstance(item, dict)
+                }
+
+                now = datetime.datetime.now(datetime.UTC)
+
+                for domain in plain_domains:
+                    if domain not in domains_to_check and domain not in accumulated_lookup:
+                        continue
+
+                    status_value = status_lookup.get(domain, "unknown")
+                    status_enum = map_worker_status_to_domain_status(status_value)
+
+                    suggestion = DomainSuggestion(
+                        domain=domain,
+                        tld=domain.split(".")[-1],
+                        status=status_enum,
+                        created_at=now,
+                        updated_at=now,
+                    )
+
+                    domains_to_store.append((domain, status_enum))
+                    metrics.add_domain_status(status_enum)
+                    
+                    try:
+                        await upsert_domain_in_db(domain, status_enum, suggestion_db.id)
+                    except Exception as e:
+                        print(f"[Similar Stream] Failed to store domain {domain}: {e}")
+
+                    existing = accumulated_lookup.get(domain)
+                    if existing:
+                        if (
+                            existing.status is not DomainStatus.AVAILABLE
+                            and status_enum is DomainStatus.AVAILABLE
+                        ):
+                            for idx, item in enumerate(accumulated):
+                                if item.domain == domain:
+                                    accumulated[idx] = suggestion
+                                    break
+                            accumulated_lookup[domain] = suggestion
+                            available_count += 1
+                            
+                            if not first_suggestion_sent:
+                                metrics.mark_first_suggestion()
+                                first_suggestion_sent = True
+                            
+                            yield _format_sse(
+                                "suggestions",
+                                {
+                                    "new": [],
+                                    "updates": [suggestion.model_dump(mode="json")],
+                                    "available_count": available_count,
+                                    "total": len(accumulated),
+                                },
+                            )
+                            await asyncio.sleep(0)
+                        continue
+
+                    if status_enum is DomainStatus.AVAILABLE and available_count >= requested_count:
+                        continue
+
+                    accumulated.append(suggestion)
+                    accumulated_lookup[domain] = suggestion
+                    if status_enum is DomainStatus.AVAILABLE:
+                        available_count += 1
+                    
+                    if not first_suggestion_sent:
+                        metrics.mark_first_suggestion()
+                        first_suggestion_sent = True
+                    
+                    yield _format_sse(
+                        "suggestions",
+                        {
+                            "new": [suggestion.model_dump(mode="json")],
+                            "updates": [],
+                            "available_count": available_count,
+                            "total": len(accumulated),
+                        },
+                    )
+                    await asyncio.sleep(0)
+
+                if available_count >= requested_count:
+                    break
+
+                retries += 1
+                metrics.increment_retry()
+                await asyncio.sleep(0)
+
+            
+            asyncio.create_task(
+                metrics.save(suggestion_db.id, requested_count)
+            )
+
+            yield _format_sse(
+                "complete",
+                {
+                    "suggestions": [item.model_dump(mode="json") for item in accumulated],
+                    "available_count": available_count,
+                    "total": len(accumulated),
+                    "source_domain": request.source_domain,
+                },
+            )
+            
+        except Exception as e:
+            print(f"[Similar Stream] Unexpected error: {e}")
             error_response = create_error_response(
                 ErrorCode.INTERNAL_ERROR,
                 details="An unexpected error occurred. Please try again.",

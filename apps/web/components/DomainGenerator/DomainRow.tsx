@@ -2,12 +2,12 @@
 
 // Libraries
 import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
 import {
     Domain,
     DomainStatusColor,
     RatingRequestBody,
     FavoriteRequestBody,
+    SimilarDomainsRequestBody,
 } from '@/lib/types';
 import { cn, getAnonRandomId, getDomainRegistrarUrl } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
@@ -21,31 +21,44 @@ import {
     ShoppingCart,
     ThumbsDown,
     ThumbsUp,
-    RefreshCw,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { Button } from '../ui/button';
+import DomainRowDropdown from './DomainRowDropdown';
 
 // Constants
 const DOMAIN_VARIANTS_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/variants/stream`;
+const DOMAIN_SIMILAR_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/similar/stream`;
 const RATING_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
 const RATINGS_GET_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
 const FAVORITE_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/user/favorite`;
+const DROPDOWN_FETCH_LIMIT = 5;
 
 // Props
 type DomainRowProps = {
     domain: Domain;
+    onVote?: (domainName: string, vote: 1 | -1) => void;
+    onFavorite?: (domainName: string, isFavorited: boolean) => void;
 };
 
-export default function DomainRow({ domain }: DomainRowProps) {
+export default function DomainRow({
+    domain,
+    onVote,
+    onFavorite,
+}: DomainRowProps) {
     const { data: session } = useSession();
     const [open, setOpen] = useState(false);
+
+    // Variants
     const [loading, setLoading] = useState(false);
     const [variants, setVariants] = useState<Domain[]>([]);
-    const [displayCount, setDisplayCount] = useState(5);
-    const [fetchLimit, setFetchLimit] = useState(5);
-    const [isStreamFinished, setIsStreamFinished] = useState(true);
     const [error, setError] = useState(false);
+
+    // Similar domains
+    const [similarLoading, setSimilarLoading] = useState(false);
+    const [similarDomains, setSimilarDomains] = useState<Domain[]>([]);
+    const [similarError, setSimilarError] = useState(false);
+
+    // Voting/favorites data
     const [votingDomain, setVotingDomain] = useState<string | null>(null);
     const [domainVotes, setDomainVotes] = useState<Map<string, 1 | -1>>(
         new Map()
@@ -58,6 +71,7 @@ export default function DomainRow({ domain }: DomainRowProps) {
     );
 
     const abortControllerRef = useRef<AbortController | null>(null);
+    const similarAbortControllerRef = useRef<AbortController | null>(null);
 
     // Fetch existing ratings
     useEffect(() => {
@@ -127,7 +141,6 @@ export default function DomainRow({ domain }: DomainRowProps) {
 
     const fetchVariants = async () => {
         setLoading(true);
-        setIsStreamFinished(false);
         setError(false);
 
         abortControllerRef.current?.abort();
@@ -137,7 +150,7 @@ export default function DomainRow({ domain }: DomainRowProps) {
         try {
             const domainName = domain.domain.split('.')[0];
             const response = await fetch(
-                `${DOMAIN_VARIANTS_URL}?domain_name=${domainName}&limit=${fetchLimit}`,
+                `${DOMAIN_VARIANTS_URL}?domain_name=${domainName}&limit=${DROPDOWN_FETCH_LIMIT}`,
                 { signal: controller.signal }
             );
 
@@ -208,9 +221,16 @@ export default function DomainRow({ domain }: DomainRowProps) {
                                             (d) => d.domain === item.domain
                                         );
                                         if (existingIndex < 0) {
-                                            next.push(item);
+                                            next.unshift({
+                                                ...item,
+                                                isNew: true,
+                                            });
                                         } else {
-                                            next[existingIndex] = item;
+                                            next[existingIndex] = {
+                                                ...item,
+                                                isNew: next[existingIndex]
+                                                    .isNew,
+                                            };
                                         }
                                     }
                                     return next;
@@ -226,7 +246,6 @@ export default function DomainRow({ domain }: DomainRowProps) {
                             );
                         }
                     } else if (eventType === 'complete') {
-                        setIsStreamFinished(true);
                         setLoading(false);
                         streamCompleted = true;
                         return;
@@ -263,39 +282,191 @@ export default function DomainRow({ domain }: DomainRowProps) {
         } finally {
             if (!controller.signal.aborted) {
                 setLoading(false);
-                setIsStreamFinished(true);
             }
         }
     };
 
     useEffect(() => {
-        if (!open) {
-            abortControllerRef.current?.abort();
-            return;
-        }
-
-        // Prevent re-fetching on re-open if we already have the initial set of variants.
-        if (variants.length > 0 && fetchLimit === 5) {
-            return;
-        }
-
-        fetchVariants();
-
         return () => {
             abortControllerRef.current?.abort();
         };
-    }, [open, domain.domain, fetchLimit]);
+    }, []);
 
-    const handleShowMore = () => {
-        setDisplayCount((prev) => prev + 5);
+    const handleCheckOtherTlds = () => {
+        // Clear isNew from existing variants
+        setVariants((prev) => prev.map((d) => ({ ...d, isNew: false })));
+        fetchVariants();
     };
 
-    const handleGenerateMore = () => {
-        setFetchLimit((prev) => prev + 5);
+    const handleGenerateSimilar = () => {
+        // Clear isNew from existing similar domains
+        setSimilarDomains((prev) => prev.map((d) => ({ ...d, isNew: false })));
+        fetchSimilarDomains();
     };
 
-    const canShowMoreLocal = displayCount < variants.length;
-    const canGenerateMore = isStreamFinished && !loading;
+    const fetchSimilarDomains = async () => {
+        setSimilarLoading(true);
+        setSimilarError(false);
+
+        similarAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        similarAbortControllerRef.current = controller;
+
+        try {
+            const requestBody: SimilarDomainsRequestBody = {
+                source_domain: domain.domain,
+                count: DROPDOWN_FETCH_LIMIT,
+            };
+
+            if (session?.user?.id) {
+                requestBody.user_id = session.user.id;
+            }
+
+            const response = await fetch(DOMAIN_SIMILAR_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+                signal: controller.signal,
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            if (!response.body) {
+                throw new Error('No response body');
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let streamCompleted = false;
+
+            const processBuffer = () => {
+                let delimiterIndex = buffer.indexOf('\n\n');
+
+                while (delimiterIndex !== -1) {
+                    const rawEvent = buffer.slice(0, delimiterIndex).trim();
+                    buffer = buffer.slice(delimiterIndex + 2);
+
+                    if (!rawEvent) {
+                        delimiterIndex = buffer.indexOf('\n\n');
+                        continue;
+                    }
+
+                    let eventType: string | null = null;
+                    let dataPayload = '';
+
+                    for (const rawLine of rawEvent.split('\n')) {
+                        const line = rawLine.trim();
+                        if (!line) {
+                            continue;
+                        }
+
+                        if (line.startsWith('event:')) {
+                            eventType = line.substring(6).trim();
+                        } else if (line.startsWith('data:')) {
+                            dataPayload += line.substring(5).trim();
+                        }
+                    }
+
+                    if (!eventType) {
+                        delimiterIndex = buffer.indexOf('\n\n');
+                        continue;
+                    }
+
+                    if (eventType === 'suggestions') {
+                        if (!dataPayload) {
+                            delimiterIndex = buffer.indexOf('\n\n');
+                            continue;
+                        }
+
+                        try {
+                            const payload = JSON.parse(dataPayload);
+                            const applySuggestions = (
+                                items: Domain[] | undefined
+                            ) => {
+                                if (!items?.length) {
+                                    return;
+                                }
+                                setSimilarDomains((prev) => {
+                                    const next = [...prev];
+                                    for (const item of items) {
+                                        const existingIndex = next.findIndex(
+                                            (d) => d.domain === item.domain
+                                        );
+                                        if (existingIndex < 0) {
+                                            next.unshift({
+                                                ...item,
+                                                isNew: true,
+                                            });
+                                        } else {
+                                            next[existingIndex] = {
+                                                ...item,
+                                                isNew: next[existingIndex]
+                                                    .isNew,
+                                            };
+                                        }
+                                    }
+                                    return next;
+                                });
+                            };
+
+                            applySuggestions(payload.new);
+                            applySuggestions(payload.updates);
+                        } catch (parseError) {
+                            console.error(
+                                'Failed to parse similar suggestions event:',
+                                parseError
+                            );
+                        }
+                    } else if (eventType === 'complete') {
+                        setSimilarLoading(false);
+                        streamCompleted = true;
+                        return;
+                    }
+
+                    delimiterIndex = buffer.indexOf('\n\n');
+                }
+            };
+
+            while (!streamCompleted) {
+                const { done, value } = await reader.read();
+
+                if (value) {
+                    buffer += decoder.decode(value, { stream: true });
+                    buffer = buffer.replace(/\r/g, '');
+                    processBuffer();
+                    if (streamCompleted) {
+                        break;
+                    }
+                }
+
+                if (done) {
+                    buffer += decoder.decode();
+                    buffer = buffer.replace(/\r/g, '');
+                    processBuffer();
+                    break;
+                }
+            }
+        } catch (error) {
+            if ((error as Error).name !== 'AbortError') {
+                console.warn('Failed to fetch similar domains:', error);
+                setSimilarError(true);
+            }
+        } finally {
+            if (!controller.signal.aborted) {
+                setSimilarLoading(false);
+            }
+        }
+    };
+    useEffect(() => {
+        return () => {
+            similarAbortControllerRef.current?.abort();
+        };
+    }, []);
 
     const handleVote = async (domain: string, vote: number) => {
         if (votingDomain === domain) {
@@ -340,6 +511,8 @@ export default function DomainRow({ domain }: DomainRowProps) {
                 next.set(domain, vote as 1 | -1);
                 return next;
             });
+
+            onVote?.(domain, vote as 1 | -1);
         } catch (error) {
             console.error('Failed to submit vote:', error);
             toast.error('Failed to submit vote. Please try again.');
@@ -409,6 +582,8 @@ export default function DomainRow({ domain }: DomainRowProps) {
                 }
                 return next;
             });
+
+            onFavorite?.(domain, action === 'fav');
 
             // Show success toast
             if (action === 'fav') {
@@ -538,207 +713,24 @@ export default function DomainRow({ domain }: DomainRowProps) {
                     </button>
                 </div>
             </div>
-            <AnimatePresence initial={false}>
-                {open && (
-                    <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.2, ease: 'easeOut' }}
-                        style={{ overflow: 'hidden' }}
-                    >
-                        <div className="border-t border-neutral-300 pt-4 mt-2 grid grid-cols-1 gap-4">
-                            {variants
-                                .slice(0, displayCount)
-                                .map((variant, index) => (
-                                    <div
-                                        key={index}
-                                        className="flex justify-between items-center pr-8"
-                                    >
-                                        <div className="flex flex-row items-center justify-start gap-2">
-                                            <Link
-                                                href={
-                                                    'https://' + variant.domain
-                                                }
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="font-normal text-sm md:text-base"
-                                            >
-                                                {variant.domain}
-                                            </Link>
-                                            <span
-                                                className={cn(
-                                                    DomainStatusColor[
-                                                        variant.status
-                                                    ],
-                                                    'text-neutral-800 font-semibold text-[0.4rem] border px-1 flex items-center h-[14px] rounded-xl'
-                                                )}
-                                            >
-                                                {variant.status}
-                                            </span>
-                                            <div className="flex items-center gap-1">
-                                                <button
-                                                    className={cn(
-                                                        'hover:cursor-pointer hover:scale-110 transition-all duration-300',
-                                                        getVoteForDomain(
-                                                            variant.domain
-                                                        ) === 1 &&
-                                                            'text-green-600'
-                                                    )}
-                                                    onClick={() =>
-                                                        handleVote(
-                                                            variant.domain,
-                                                            1
-                                                        )
-                                                    }
-                                                >
-                                                    <ThumbsUp
-                                                        className={cn(
-                                                            'size-3',
-                                                            getVoteForDomain(
-                                                                variant.domain
-                                                            ) === 1 &&
-                                                                'text-green-600'
-                                                        )}
-                                                        strokeWidth={1.75}
-                                                    />
-                                                </button>
-                                                <button
-                                                    className={cn(
-                                                        'hover:cursor-pointer hover:scale-110 transition-all duration-300',
-                                                        getVoteForDomain(
-                                                            variant.domain
-                                                        ) === -1 &&
-                                                            'text-red-600'
-                                                    )}
-                                                    onClick={() =>
-                                                        handleVote(
-                                                            variant.domain,
-                                                            -1
-                                                        )
-                                                    }
-                                                >
-                                                    <ThumbsDown
-                                                        className={cn(
-                                                            'size-3',
-                                                            getVoteForDomain(
-                                                                variant.domain
-                                                            ) === -1 &&
-                                                                'text-red-600'
-                                                        )}
-                                                        strokeWidth={1.75}
-                                                    />
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <div className="flex gap-4 items-center justify-end">
-                                            <button
-                                                type="button"
-                                                className={cn(
-                                                    'hover:cursor-pointer hover:scale-110 transition-all duration-300',
-                                                    isDomainFavorited(
-                                                        variant.domain
-                                                    ) && 'text-red-600',
-                                                    !session?.user?.id &&
-                                                        'opacity-50'
-                                                )}
-                                                onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-
-                                                    handleFavorite(
-                                                        variant.domain
-                                                    );
-                                                }}
-                                            >
-                                                <Heart
-                                                    className={cn(
-                                                        'size-4 pointer-events-none',
-                                                        isDomainFavorited(
-                                                            variant.domain
-                                                        ) &&
-                                                            'text-red-600 fill-red-600'
-                                                    )}
-                                                    strokeWidth={1.75}
-                                                    fill={
-                                                        isDomainFavorited(
-                                                            variant.domain
-                                                        )
-                                                            ? 'currentColor'
-                                                            : 'none'
-                                                    }
-                                                />
-                                            </button>
-                                            <Link
-                                                className="hover:cursor-pointer hover:scale-110 transition-all duration-300"
-                                                href={getDomainRegistrarUrl(
-                                                    variant.domain
-                                                )}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                            >
-                                                <ShoppingCart
-                                                    className="size-4"
-                                                    strokeWidth={1.75}
-                                                />
-                                            </Link>
-                                        </div>
-                                    </div>
-                                ))}
-
-                            {error ? (
-                                <div className="flex flex-col items-center justify-center py-4 gap-4">
-                                    <div className="text-red-500 flex items-center gap-2 text-sm">
-                                        <span>Failed to load variants</span>
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-7 text-xs gap-1.5"
-                                        onClick={() => fetchVariants()}
-                                    >
-                                        <RefreshCw className="size-3" />
-                                        Try again
-                                    </Button>
-                                </div>
-                            ) : loading && variants.length === 0 ? (
-                                <span className="flex items-center justify-center text-xs py-1 animate-pulse">
-                                    Checking other top-level domains...
-                                </span>
-                            ) : (
-                                <div className="w-full flex items-center justify-center pt-2">
-                                    {canShowMoreLocal ? (
-                                        <Button
-                                            onClick={handleShowMore}
-                                            size="sm"
-                                        >
-                                            Show more
-                                        </Button>
-                                    ) : canGenerateMore &&
-                                      variants.length > 0 ? (
-                                        <Button
-                                            onClick={handleGenerateMore}
-                                            size="sm"
-                                        >
-                                            Generate more
-                                        </Button>
-                                    ) : loading && variants.length > 0 ? (
-                                        <span className="text-xs animate-pulse">
-                                            Generating...
-                                        </span>
-                                    ) : !loading &&
-                                      variants.length === 0 &&
-                                      isStreamFinished ? (
-                                        <span className="text-xs">
-                                            No other TLDs found.
-                                        </span>
-                                    ) : null}
-                                </div>
-                            )}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            <DomainRowDropdown
+                open={open}
+                variants={variants}
+                similarDomains={similarDomains}
+                loading={loading}
+                similarLoading={similarLoading}
+                error={error}
+                similarError={similarError}
+                onRetryVariants={fetchVariants}
+                onRetrySimilar={fetchSimilarDomains}
+                onGenerateVariants={handleCheckOtherTlds}
+                onGenerateSimilar={handleGenerateSimilar}
+                onVote={handleVote}
+                getVoteForDomain={getVoteForDomain}
+                onFavorite={handleFavorite}
+                isDomainFavorited={isDomainFavorited}
+                hasSession={Boolean(session?.user?.id)}
+            />
         </Card>
     );
 }

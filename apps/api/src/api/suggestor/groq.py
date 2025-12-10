@@ -1,18 +1,17 @@
-from typing import List
+from typing import List, Optional
 import groq
 import json
-import time
 import asyncio
 
 from api.config import get_settings
 from api.suggestor.base import SuggestorBase
 from api.exceptions import GenerationFailedError, ServiceUnavailableError, RateLimitedError
-from .prompts import create_prompt, PromptType
+from .prompts import create_prompt, PromptType, UserPreferences, SimilarContext
 
 
 # Retry configuration
 MAX_RETRIES = 3
-RETRY_DELAYS = [0.5, 1.0, 2.0]  # Exponential backoff delays in seconds
+RETRY_DELAYS = [0.5, 1.0, 2.0]
 
 
 class GroqSuggestor(SuggestorBase):
@@ -27,12 +26,33 @@ class GroqSuggestor(SuggestorBase):
 
         self.client = groq.Groq(api_key=self.api_key)
 
-    async def generate(self, description: str, count: int = 10, prompt_type: PromptType = PromptType.LEGACY) -> List[str]:
+    async def generate(
+        self,
+        description: str,
+        count: int = 10,
+        prompt_type: PromptType = PromptType.LEGACY,
+        preferences: Optional[UserPreferences] = None,
+        similar_context: Optional[SimilarContext] = None,
+    ) -> List[str]:
+        """Generate domain suggestions using the specified prompt type.
+        
+        Args:
+            description: User's description of what they're looking for
+            count: Number of suggestions to generate
+            prompt_type: The type of prompt to use
+            preferences: User preferences for personalized prompts
+            similar_context: Context for similar domain generation
+        
+        Returns:
+            List of domain name suggestions
+        """
         last_error = None
         
         for attempt in range(MAX_RETRIES):
             try:
-                suggestions = await self._make_request(description, count, prompt_type)
+                suggestions = await self._make_request(
+                    description, count, prompt_type, preferences, similar_context
+                )
                 if suggestions:
                     return suggestions
                     
@@ -94,14 +114,29 @@ class GroqSuggestor(SuggestorBase):
         print(f"[GroqSuggestor] All {MAX_RETRIES} attempts failed. Last error: {last_error}")
         raise GenerationFailedError(details="Unable to generate domain suggestions after multiple attempts.")
 
-    async def _make_request(self, description: str, count: int, prompt_type: PromptType) -> List[str]:
+    async def _make_request(
+        self,
+        description: str,
+        count: int,
+        prompt_type: PromptType,
+        preferences: Optional[UserPreferences] = None,
+        similar_context: Optional[SimilarContext] = None,
+    ) -> List[str]:
         """Make a single request to the Groq API."""
+        prompt = create_prompt(
+            prompt_type,
+            description,
+            count + 10,
+            preferences=preferences,
+            similar_context=similar_context,
+        )
+        
         completion = self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {
                     "role": "user",
-                    "content": create_prompt(prompt_type, description, count + 10)
+                    "content": prompt
                 }
             ],
             temperature=self.model_temperature,

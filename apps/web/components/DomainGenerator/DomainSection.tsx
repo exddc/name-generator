@@ -15,6 +15,8 @@ type DomainSectionProps = {
     isOpen: boolean;
     onToggle: () => void;
     itemKeySuffix: string;
+    onVote?: (domainName: string, vote: 1 | -1) => void;
+    onFavorite?: (domainName: string, isFavorited: boolean) => void;
 };
 
 export default function DomainSection({
@@ -23,6 +25,8 @@ export default function DomainSection({
     isOpen,
     onToggle,
     itemKeySuffix,
+    onVote,
+    onFavorite,
 }: DomainSectionProps) {
     if (!domains.length) {
         return null;
@@ -70,7 +74,11 @@ export default function DomainSection({
                                         }}
                                         style={{ overflow: 'hidden' }}
                                     >
-                                        <DomainRow domain={domain} />
+                                        <DomainRow
+                                            domain={domain}
+                                            onVote={onVote}
+                                            onFavorite={onFavorite}
+                                        />
                                     </motion.div>
                                 ))}
                             </AnimatePresence>
