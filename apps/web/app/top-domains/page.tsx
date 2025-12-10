@@ -468,7 +468,7 @@ export default function TopDomains() {
                     </div>
                 ),
             },
-            {
+            /* {
                 accessorKey: 'model',
                 header: () => <div className="text-center">Model</div>,
                 cell: ({ row }) => {
@@ -485,7 +485,7 @@ export default function TopDomains() {
                         </div>
                     );
                 },
-            },
+            }, */
             {
                 id: 'actions',
                 header: () => <div></div>,
