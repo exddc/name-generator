@@ -9,6 +9,10 @@ post {
   body: json
   auth: inherit
 }
+headers {
+  Authorization: Bearer {{api_token}}
+}
+
 
 body:json {
   {

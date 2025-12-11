@@ -57,6 +57,18 @@ class Settings(BaseSettings):
     cors_allow_origins: str | None = os.environ.get("CORS_ALLOW_ORIGINS", "http://localhost:3000")
     """Comma-separated list of allowed CORS origins"""
 
+    # JWT Settings
+    api_jwt_secret: str = os.environ.get("API_JWT_SECRET", "")
+    """Shared secret used to validate API-bound JWTs"""
+    api_jwt_algorithm: str = os.environ.get("API_JWT_ALGORITHM", "HS256")
+    """JWT signing algorithm"""
+    api_jwt_audience: str = os.environ.get("API_JWT_AUDIENCE", "domain-generator-api")
+    """Expected JWT audience"""
+    api_jwt_issuer: str = os.environ.get("API_JWT_ISSUER", "domain-generator-web")
+    """Expected JWT issuer"""
+    api_jwt_leeway_seconds: int = int(os.environ.get("API_JWT_LEEWAY_SECONDS", "10"))
+    """Allowed leeway for exp/nbf validation"""
+
     # Suggestions Settings
     max_suggestions_retries: int = int(os.environ.get("MAX_SUGGESTIONS_RETRIES", "5"))
     """Maximum attempts to fetch enough available suggestions"""

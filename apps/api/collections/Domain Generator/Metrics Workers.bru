@@ -9,6 +9,10 @@ get {
   body: none
   auth: inherit
 }
+headers {
+  Authorization: Bearer {{api_token}}
+}
+
 
 settings {
   encodeUrl: true

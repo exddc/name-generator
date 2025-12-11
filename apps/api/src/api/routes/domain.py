@@ -6,7 +6,7 @@ import json
 import time
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -45,6 +45,11 @@ from api.utils import (
     filter_valid_domains,
     upsert_domain_in_db,
 )
+from api.security import (
+    AuthenticatedUser,
+    ensure_user_matches,
+    require_authenticated_user,
+)
 from api.models.db_models import Rating as RatingDB, Domain as DomainDB, Favorite as FavoriteDB, Suggestion as SuggestionDB, WorkerMetrics, QueueSnapshot
 from tortoise import connections
 from tortoise.expressions import Q, F
@@ -65,7 +70,8 @@ router = APIRouter(prefix="/domain", tags=["domain"])
 @router.get("/")
 async def get_domain_status(
     domain: str,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    _: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> ResponseDomainStatus:
     """Return the status of a single domain, waiting for worker results if available."""
     results = await enqueue_and_wait([domain])
@@ -82,6 +88,7 @@ async def get_domain_status(
 @router.post("/rating")
 async def create_rating(
     request: RequestRating,
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> RatingResponse:
     """
     Create or update a rating (upvote or downvote) for a domain.
@@ -91,6 +98,10 @@ async def create_rating(
     - One user can only have one rating per domain
     - Requires either user_id or anon_random_id
     """
+    resolved_user_id = ensure_user_matches(request.user_id, auth_user)
+    request.user_id = resolved_user_id
+    request.anon_random_id = None
+
     try:
         vote_value = 1 if request.vote == 1 else -1
         rating = await create_domain_rating(
@@ -125,6 +136,7 @@ async def get_top_domains(
     min_rating: int | None = Query(1, description="Minimum rating (upvotes - downvotes). Default 1 for positive ratings."),
     search: str | None = Query(None, description="Search domains by name (partial match)"),
     user_id: str | None = Query(None, description="User ID to check favorites for"),
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> ResponseDomain:
     """
     Get paginated highest rated domains.
@@ -142,11 +154,15 @@ async def get_top_domains(
     if status and status not in ["available", "registered", "unknown"]:
         raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
     
+    resolved_user_id = auth_user.user_id
+    if user_id:
+        resolved_user_id = ensure_user_matches(user_id, auth_user)
+    
     offset = (page - 1) * page_size
     
     favorited_domains: set[str] = set()
-    if user_id:
-        favorites = await FavoriteDB.filter(user_id=user_id).prefetch_related("domain").all()
+    if resolved_user_id:
+        favorites = await FavoriteDB.filter(user_id=resolved_user_id).prefetch_related("domain").all()
         favorited_domains = {fav.domain.domain for fav in favorites}
     
     if sort_by == "rating":
@@ -193,7 +209,7 @@ async def get_top_domains(
             for row in result[1]:
                 domain_val, domain_name, tld, status_val, last_checked, created_at, updated_at, upvotes, downvotes, rating_score, suggestion_id, model, prompt = row
                 total_ratings = upvotes + downvotes
-                is_favorite = domain_val in favorited_domains if user_id else None
+                is_favorite = domain_val in favorited_domains if resolved_user_id else None
                 domain_obj = DomainModel(
                     domain=domain_val,
                     tld=tld,
@@ -259,7 +275,7 @@ async def get_top_domains(
             
             total_ratings = domain.upvotes + domain.downvotes
             suggestion_obj = domain.suggestion
-            is_favorite = domain.domain in favorited_domains if user_id else None
+            is_favorite = domain.domain in favorited_domains if resolved_user_id else None
             
             domain_obj = DomainModel(
                 domain=domain.domain,
@@ -291,6 +307,7 @@ async def get_ratings(
     anon_random_id: str | None = Query(None, description="Anonymous session ID to get ratings for"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Number of items per page"),
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> ResponseRatings:
     """
     Get all ratings for a user.
@@ -298,16 +315,14 @@ async def get_ratings(
     Requires either user_id or anon_random_id.
     Returns paginated results.
     """
-    if not user_id and not anon_random_id:
+    if anon_random_id:
         raise HTTPException(
-            status_code=400,
-            detail="Either user_id or anon_random_id is required"
+            status_code=403,
+            detail="Anonymous ratings are no longer supported"
         )
-    
-    if user_id:
-        rater_key = f"user:{user_id}"
-    else:
-        rater_key = f"anon:{anon_random_id}"
+
+    resolved_user_id = ensure_user_matches(user_id, auth_user)
+    rater_key = f"user:{resolved_user_id}"
     
     total = await RatingDB.filter(rater_key=rater_key).count()
     
@@ -337,6 +352,7 @@ async def get_domain_variants(
     domain_name: str,
     background_tasks: BackgroundTasks,
     limit: int = Query(10, ge=1, le=100, description="Number of available TLD variants to find."),
+    _: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> ResponseDomainSuggestion:
     """
     Check a domain against a list of TLDs, iterating until enough available domains are found.
@@ -424,6 +440,7 @@ async def get_domain_variants(
 async def get_domain_variants_stream(
     domain_name: str,
     limit: int = Query(10, ge=1, le=100, description="Number of available TLD variants to find."),
+    _: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> StreamingResponse:
     """Stream domain variant checks as they are processed."""
     metrics = MetricsTracker()
@@ -528,9 +545,12 @@ async def get_domain_variants_stream(
 @router.post("/")
 async def suggest(
     request: RequestDomainSuggestion,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user)
 ) -> ResponseDomainSuggestion:
     """Generate suggestions and enrich them with worker-provided availability statuses."""
+    request.user_id = ensure_user_matches(request.user_id, auth_user)
+
     requested_count = request.count or RequestDomainSuggestion.model_fields["count"].default
     retries = 0
     max_retries = max(1, settings.max_suggestions_retries)
@@ -634,8 +654,13 @@ async def suggest(
 
 
 @router.post("/stream")
-async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
+async def suggest_stream(
+    request: RequestDomainSuggestion,
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user)
+) -> StreamingResponse:
     """Stream domain suggestions as they are generated and checked."""
+    request.user_id = ensure_user_matches(request.user_id, auth_user)
+    
     requested_count = request.count or RequestDomainSuggestion.model_fields["count"].default
     max_retries = max(1, settings.max_suggestions_retries)
 
@@ -899,8 +924,13 @@ async def suggest_stream(request: RequestDomainSuggestion) -> StreamingResponse:
 
 
 @router.post("/similar/stream")
-async def suggest_similar_stream(request: RequestSimilarDomains) -> StreamingResponse:
+async def suggest_similar_stream(
+    request: RequestSimilarDomains,
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user)
+) -> StreamingResponse:
     """Stream domain suggestions that are similar to a source domain."""
+    request.user_id = ensure_user_matches(request.user_id, auth_user)
+    
     requested_count = request.count or 10
     max_retries = max(1, settings.max_suggestions_retries)
 

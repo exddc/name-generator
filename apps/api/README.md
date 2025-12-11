@@ -62,3 +62,26 @@ This service uses **Aerich** for schema management with TortoiseORM. All migrati
 ### API Documentation
 
 API documentation is available at http://localhost:8000/docs.
+
+## Authentication
+
+All production endpoints are protected with a short-lived JWT that must be supplied via the standard `Authorization: Bearer <token>` header. The API validates the token using the following environment variables:
+
+| Variable | Description |
+| --- | --- |
+| `API_JWT_SECRET` | Shared HMAC secret used to verify signatures |
+| `API_JWT_ISSUER` | Expected issuer claim (defaults to `domain-generator-web`) |
+| `API_JWT_AUDIENCE` | Expected audience claim (defaults to `domain-generator-api`) |
+| `API_JWT_ALGORITHM` | Signing algorithm (`HS256` by default) |
+| `API_JWT_TTL_SECONDS` | Default lifetime for UI-issued tokens |
+
+### Generating tokens locally
+
+For manual testing (Bruno, curl, etc.) you can mint a token locally without the frontend by running:
+
+```bash
+cd apps/api
+poetry run python scripts/generate_jwt.py --user-id <uuid-from-better-auth> --email you@example.com
+```
+
+Add `--scopes metrics:read` when you need to call the metrics endpoints. The command prints a bearer token that you can paste into `$Authorization` headers or the `{{api_token}}` variable in the Bruno collection.

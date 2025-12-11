@@ -18,7 +18,7 @@ import {
     RatingRequestBody,
     FavoriteRequestBody,
 } from '@/lib/types';
-import { cn, getAnonRandomId, getDomainRegistrarUrl } from '@/lib/utils';
+import { cn, getDomainRegistrarUrl } from '@/lib/utils';
 import {
     ArrowUpDown,
     ArrowUp,
@@ -47,6 +47,7 @@ import {
 import Link from 'next/link';
 
 import { PageShell, PageHeader } from '@/components/page-layout';
+import { apiFetch } from '@/lib/api-client';
 
 const TOP_DOMAINS_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/top`;
 const RATING_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
@@ -64,7 +65,7 @@ type SortOrder = 'asc' | 'desc';
 
 export default function TopDomains() {
     const router = useRouter();
-    const { data: session } = useSession();
+    const { data: session, isPending } = useSession();
     const [domains, setDomains] = useState<Domain[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [hasError, setHasError] = useState(false);
@@ -151,17 +152,18 @@ export default function TopDomains() {
     }, [isLoading]);
 
     useEffect(() => {
+        if (!session?.user?.id) {
+            setDomainVotes(new Map());
+            return;
+        }
+
         const fetchRatings = async () => {
             try {
                 const params = new URLSearchParams();
-                if (session?.user?.id) {
-                    params.append('user_id', session.user.id);
-                } else {
-                    params.append('anon_random_id', getAnonRandomId());
-                }
+                params.append('user_id', session.user.id);
                 params.append('page_size', '100');
 
-                const response = await fetch(
+                const response = await apiFetch(
                     `${RATINGS_GET_URL}?${params.toString()}`
                 );
 
@@ -176,7 +178,9 @@ export default function TopDomains() {
                     setDomainVotes(votesMap);
                 }
             } catch (error) {
-                console.warn('Failed to fetch ratings:', error);
+                if ((error as Error)?.message !== 'AUTH_REQUIRED') {
+                    console.warn('Failed to fetch ratings:', error);
+                }
             }
         };
 
@@ -188,6 +192,13 @@ export default function TopDomains() {
             return;
         }
 
+        if (!session?.user?.id) {
+            toast.info('Sign in to vote on domains', {
+                description: 'Log in to upvote and downvote domain ideas.',
+            });
+            return;
+        }
+
         setVotingDomain(domain);
 
         try {
@@ -196,13 +207,9 @@ export default function TopDomains() {
                 vote: vote as 1 | -1,
             };
 
-            if (session?.user?.id) {
-                requestBody.user_id = session.user.id;
-            } else {
-                requestBody.anon_random_id = getAnonRandomId();
-            }
+            requestBody.user_id = session.user.id;
 
-            const response = await fetch(RATING_API_URL, {
+            const response = await apiFetch(RATING_API_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -226,8 +233,14 @@ export default function TopDomains() {
                 return next;
             });
         } catch (error) {
-            console.error('Failed to submit vote:', error);
-            toast.error('Failed to submit vote. Please try again.');
+            if ((error as Error)?.message === 'AUTH_REQUIRED') {
+                toast.info('Sign in to vote on domains', {
+                    description: 'Log in to upvote and downvote domain ideas.',
+                });
+            } else {
+                console.error('Failed to submit vote:', error);
+                toast.error('Failed to submit vote. Please try again.');
+            }
         } finally {
             setVotingDomain(null);
         }
@@ -262,7 +275,7 @@ export default function TopDomains() {
                 action,
             };
 
-            const response = await fetch(FAVORITE_API_URL, {
+            const response = await apiFetch(FAVORITE_API_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -296,8 +309,14 @@ export default function TopDomains() {
                 toast.success(`Added ${domain} to favorites`);
             }
         } catch (error) {
-            console.error('Failed to toggle favorite:', error);
-            toast.error('Failed to update favorite. Please try again.');
+            if ((error as Error)?.message === 'AUTH_REQUIRED') {
+                toast.info('Sign in to favorite domains', {
+                    description: 'Log in to save your favorite domain names.',
+                });
+            } else {
+                console.error('Failed to toggle favorite:', error);
+                toast.error('Failed to update favorite. Please try again.');
+            }
         } finally {
             setFavoritingDomain(null);
         }
@@ -576,7 +595,7 @@ export default function TopDomains() {
                 params.append('user_id', session.user.id);
             }
 
-            const response = await fetch(
+            const response = await apiFetch(
                 `${TOP_DOMAINS_API_URL}?${params.toString()}`
             );
 
@@ -616,7 +635,11 @@ export default function TopDomains() {
                 setHasError(true);
             }
         } catch (error) {
-            console.warn('Failed to fetch top domains:', error);
+            if ((error as Error)?.message === 'AUTH_REQUIRED') {
+                toast.info('Sign in again to refresh top domains.');
+            } else {
+                console.warn('Failed to fetch top domains:', error);
+            }
             setHasError(true);
         } finally {
             setIsLoading(false);
@@ -663,6 +686,33 @@ export default function TopDomains() {
     }, [allDomains]);
 
     const totalPages = Math.ceil(total / pageSize);
+
+    if (isPending) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[70vh]">
+                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+        );
+    }
+
+    if (!session?.user) {
+        return (
+            <PageShell>
+                <PageHeader
+                    title="Top Domains"
+                    description="Sign in to explore curated domain ideas."
+                />
+                <Card className="p-6 text-center border-dashed border-primary">
+                    <p className="text-base text-muted-foreground mb-4">
+                        Authentication is required before viewing the top domains leaderboard.
+                    </p>
+                    <Button asChild>
+                        <Link href="/login">Go to login</Link>
+                    </Button>
+                </Card>
+            </PageShell>
+        );
+    }
 
     return (
         <PageShell>

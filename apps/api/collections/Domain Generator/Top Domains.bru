@@ -9,6 +9,10 @@ get {
   body: none
   auth: inherit
 }
+headers {
+  Authorization: Bearer {{api_token}}
+}
+
 
 params:query {
   page: 1

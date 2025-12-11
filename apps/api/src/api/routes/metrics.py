@@ -1,11 +1,12 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from tortoise.functions import Sum, Avg
 from tortoise.queryset import QuerySet
 import numpy as np
 
 from api.models.db_models import SuggestionMetrics, Suggestion, Domain, WorkerMetrics, QueueSnapshot
+from api.security import require_scope
 from api.models.api_models import (
     MetricsResponse, 
     TimeSeriesPoint, 
@@ -18,7 +19,7 @@ from api.models.api_models import (
 )
 from api.routes.domain import queue
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_scope("metrics:read"))])
 
 async def _get_summary_metrics(cutoff_date: Optional[datetime] = None) -> MetricsSummaryResponse:
     query = SuggestionMetrics.all()
