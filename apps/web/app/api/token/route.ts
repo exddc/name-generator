@@ -1,6 +1,8 @@
 import { auth } from '@/lib/auth';
+import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { SignJWT } from 'jose';
+import { randomUUID } from 'crypto';
 
 type SessionResult = {
     user: {
@@ -21,6 +23,8 @@ const DEFAULT_TTL_SECONDS = 300;
 const DEFAULT_ISSUER = 'domain-generator-web';
 const DEFAULT_AUDIENCE = 'domain-generator-api';
 const DEFAULT_ALGORITHM = 'HS256';
+const DEFAULT_ANON_COOKIE = 'dg_anon_id';
+const DEFAULT_ANON_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 async function issueToken(request: NextRequest) {
     const secret = process.env.API_JWT_SECRET;
@@ -31,6 +35,8 @@ async function issueToken(request: NextRequest) {
         );
     }
 
+    const cookieStore = cookies();
+
     let sessionResult: SessionResult = null;
     try {
         sessionResult = (await auth.api.getSession({
@@ -38,14 +44,7 @@ async function issueToken(request: NextRequest) {
         })) as SessionResult;
     } catch (error) {
         console.error('[token] Failed to load session', error);
-        return NextResponse.json(
-            { error: 'Unable to load session. Please refresh and try again.' },
-            { status: 500 }
-        );
-    }
-
-    if (!sessionResult?.user || !sessionResult?.session) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        sessionResult = null;
     }
 
     const ttlInput = Number(process.env.API_JWT_TTL_SECONDS ?? DEFAULT_TTL_SECONDS);
@@ -57,19 +56,50 @@ async function issueToken(request: NextRequest) {
     const audience = process.env.API_JWT_AUDIENCE || DEFAULT_AUDIENCE;
     const algorithm = process.env.API_JWT_ALGORITHM || DEFAULT_ALGORITHM;
 
-    const initialScopes = Array.isArray(sessionResult.session.scopes)
-        ? sessionResult.session.scopes
-        : [];
-    const scopes =
-        sessionResult.user.role === 'admin'
-            ? Array.from(new Set([...initialScopes, 'metrics:read']))
-            : initialScopes;
+    const anonCookieName = process.env.API_ANON_COOKIE_NAME || DEFAULT_ANON_COOKIE;
+    const anonCookieMaxAge =
+        Number(process.env.API_ANON_COOKIE_MAX_AGE ?? DEFAULT_ANON_COOKIE_MAX_AGE) ||
+        DEFAULT_ANON_COOKIE_MAX_AGE;
+
+    let subject: string;
+    let email: string | undefined;
+    let name: string | undefined;
+    let sessionId: string;
+    let scopes: string[] = [];
+    let shouldSetAnonCookie = false;
+    let anonId: string | null = null;
+
+    if (sessionResult?.user && sessionResult.session) {
+        subject = sessionResult.user.id;
+        email = sessionResult.user.email;
+        name = sessionResult.user.name ?? undefined;
+        sessionId = sessionResult.session.id;
+
+        const initialScopes = Array.isArray(sessionResult.session.scopes)
+            ? sessionResult.session.scopes
+            : [];
+        scopes =
+            sessionResult.user.role === 'admin'
+                ? Array.from(new Set([...initialScopes, 'metrics:read']))
+                : initialScopes;
+    } else {
+        anonId = cookieStore.get(anonCookieName)?.value ?? null;
+        if (!anonId) {
+            anonId = randomUUID();
+            shouldSetAnonCookie = true;
+        }
+        subject = `anon:${anonId}`;
+        sessionId = subject;
+        email = undefined;
+        name = undefined;
+        scopes = [];
+    }
 
     const payload = {
-        sub: sessionResult.user.id,
-        email: sessionResult.user.email,
-        name: sessionResult.user.name,
-        session_id: sessionResult.session.id,
+        sub: subject,
+        email,
+        name,
+        session_id: sessionId,
         scopes,
     };
 
@@ -90,11 +120,23 @@ async function issueToken(request: NextRequest) {
         );
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
         token,
         expires_at: new Date(expiresAt * 1000).toISOString(),
         ttl_seconds: ttlSeconds,
     });
+
+    if (shouldSetAnonCookie && anonId) {
+        response.cookies.set(anonCookieName, anonId, {
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: anonCookieMaxAge,
+            path: '/',
+        });
+    }
+
+    return response;
 }
 
 export async function GET(request: NextRequest) {

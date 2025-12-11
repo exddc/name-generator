@@ -76,15 +76,10 @@ export default function DomainRow({
 
     // Fetch existing ratings
     useEffect(() => {
-        if (!session?.user?.id) {
-            setDomainVotes(new Map());
-            return;
-        }
-
         const fetchRatings = async () => {
             try {
                 const params = new URLSearchParams();
-                params.append('user_id', session.user.id);
+                params.append('page', '1');
                 params.append('page_size', '100'); // Fetch enough ratings
 
                 const response = await apiFetch(
@@ -147,13 +142,6 @@ export default function DomainRow({
     }, [session?.user?.id]);
 
     const fetchVariants = async () => {
-        if (!session?.user?.id) {
-            toast.info('Sign in to explore other TLDs', {
-                description: 'Log in to request more domain variants.',
-            });
-            return;
-        }
-
         setLoading(true);
         setError(false);
 
@@ -290,9 +278,6 @@ export default function DomainRow({
             }
         } catch (error) {
             if ((error as Error)?.message === 'AUTH_REQUIRED') {
-                toast.info('Sign in to explore other TLDs', {
-                    description: 'Log in to request more domain variants.',
-                });
                 setError(true);
                 return;
             }
@@ -326,13 +311,6 @@ export default function DomainRow({
     };
 
     const fetchSimilarDomains = async () => {
-        if (!session?.user?.id) {
-            toast.info('Sign in to generate similar domains', {
-                description: 'Log in to request additional AI variations.',
-            });
-            return;
-        }
-
         setSimilarLoading(true);
         setSimilarError(false);
 
@@ -481,9 +459,6 @@ export default function DomainRow({
             }
         } catch (error) {
             if ((error as Error)?.message === 'AUTH_REQUIRED') {
-                toast.info('Sign in to generate similar domains', {
-                    description: 'Log in to request additional AI variations.',
-                });
                 setSimilarError(true);
                 return;
             }
@@ -508,13 +483,6 @@ export default function DomainRow({
             return;
         }
 
-        if (!session?.user?.id) {
-            toast.info('Sign in to vote on domains', {
-                description: 'Log in to upvote and downvote domain ideas.',
-            });
-            return;
-        }
-
         setVotingDomain(domain);
 
         try {
@@ -522,8 +490,6 @@ export default function DomainRow({
                 domain,
                 vote: vote as 1 | -1,
             };
-
-            requestBody.user_id = session.user.id;
 
             const response = await apiFetch(RATING_API_URL, {
                 method: 'POST',
@@ -552,11 +518,7 @@ export default function DomainRow({
 
             onVote?.(domain, vote as 1 | -1);
         } catch (error) {
-            if ((error as Error)?.message === 'AUTH_REQUIRED') {
-                toast.info('Sign in to vote on domains', {
-                    description: 'Log in to upvote and downvote domain ideas.',
-                });
-            } else {
+            if ((error as Error)?.message !== 'AUTH_REQUIRED') {
                 console.error('Failed to submit vote:', error);
                 toast.error('Failed to submit vote. Please try again.');
             }

@@ -65,7 +65,7 @@ type SortOrder = 'asc' | 'desc';
 
 export default function TopDomains() {
     const router = useRouter();
-    const { data: session, isPending } = useSession();
+    const { data: session } = useSession();
     const [domains, setDomains] = useState<Domain[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [hasError, setHasError] = useState(false);
@@ -152,15 +152,10 @@ export default function TopDomains() {
     }, [isLoading]);
 
     useEffect(() => {
-        if (!session?.user?.id) {
-            setDomainVotes(new Map());
-            return;
-        }
-
         const fetchRatings = async () => {
             try {
                 const params = new URLSearchParams();
-                params.append('user_id', session.user.id);
+                params.append('page', '1');
                 params.append('page_size', '100');
 
                 const response = await apiFetch(
@@ -192,13 +187,6 @@ export default function TopDomains() {
             return;
         }
 
-        if (!session?.user?.id) {
-            toast.info('Sign in to vote on domains', {
-                description: 'Log in to upvote and downvote domain ideas.',
-            });
-            return;
-        }
-
         setVotingDomain(domain);
 
         try {
@@ -206,8 +194,6 @@ export default function TopDomains() {
                 domain,
                 vote: vote as 1 | -1,
             };
-
-            requestBody.user_id = session.user.id;
 
             const response = await apiFetch(RATING_API_URL, {
                 method: 'POST',
@@ -233,11 +219,7 @@ export default function TopDomains() {
                 return next;
             });
         } catch (error) {
-            if ((error as Error)?.message === 'AUTH_REQUIRED') {
-                toast.info('Sign in to vote on domains', {
-                    description: 'Log in to upvote and downvote domain ideas.',
-                });
-            } else {
+            if ((error as Error)?.message !== 'AUTH_REQUIRED') {
                 console.error('Failed to submit vote:', error);
                 toast.error('Failed to submit vote. Please try again.');
             }
@@ -591,10 +573,6 @@ export default function TopDomains() {
                 params.append('search', debouncedSearchQuery.trim());
             }
 
-            if (session?.user?.id) {
-                params.append('user_id', session.user.id);
-            }
-
             const response = await apiFetch(
                 `${TOP_DOMAINS_API_URL}?${params.toString()}`
             );
@@ -686,33 +664,6 @@ export default function TopDomains() {
     }, [allDomains]);
 
     const totalPages = Math.ceil(total / pageSize);
-
-    if (isPending) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[70vh]">
-                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-        );
-    }
-
-    if (!session?.user) {
-        return (
-            <PageShell>
-                <PageHeader
-                    title="Top Domains"
-                    description="Sign in to explore curated domain ideas."
-                />
-                <Card className="p-6 text-center border-dashed border-primary">
-                    <p className="text-base text-muted-foreground mb-4">
-                        Authentication is required before viewing the top domains leaderboard.
-                    </p>
-                    <Button asChild>
-                        <Link href="/login">Go to login</Link>
-                    </Button>
-                </Card>
-            </PageShell>
-        );
-    }
 
     return (
         <PageShell>

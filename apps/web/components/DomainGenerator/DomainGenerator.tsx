@@ -14,7 +14,6 @@ import { useSession } from '@/lib/auth-client';
 import { usePlausible } from 'next-plausible';
 import { toast } from '@/components/ui/sonner';
 import { apiFetch } from '@/lib/api-client';
-import Link from 'next/link';
 
 // Components
 import DomainSection from './DomainSection';
@@ -41,7 +40,6 @@ export default function DomainGenerator({
 }: DomainGeneratorProps) {
     const plausible = usePlausible();
     const { data: session } = useSession();
-    const isAuthenticated = Boolean(session?.user);
     const [userInput, setUserInput] = useState(initialSearch || '');
     const [domains, setDomains] = useState<Domain[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -177,13 +175,6 @@ export default function DomainGenerator({
     }, []);
 
     const handleRetry = useCallback(() => {
-        if (!isAuthenticated) {
-            toast.info('Sign in to generate new domain ideas', {
-                description: 'Log in to request more domain suggestions.',
-            });
-            return;
-        }
-
         setLastError(null);
         setCanRetry(false);
 
@@ -197,7 +188,7 @@ export default function DomainGenerator({
         setLoadingText('Retrying...');
 
         fetchSuggestionsInternal(controller, false);
-    }, [isAuthenticated, session?.user?.id, userInput]);
+    }, [session?.user?.id, userInput]);
 
     const buildPreferences = (): UserPreferencesInput | undefined => {
         const likedDomains: string[] = [];
@@ -437,12 +428,6 @@ export default function DomainGenerator({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!isAuthenticated) {
-            toast.info('Sign in to generate new domain ideas', {
-                description: 'Log in to request more domain suggestions.',
-            });
-            return;
-        }
         plausible('domain-generation-submit');
         abortControllerRef.current?.abort();
 
@@ -468,13 +453,6 @@ export default function DomainGenerator({
     };
 
     const handleGenerateMore = async (creative: boolean = false) => {
-        if (!isAuthenticated) {
-            toast.info('Sign in to generate new domain ideas', {
-                description: 'Log in to request more domain suggestions.',
-            });
-            return;
-        }
-
         abortControllerRef.current?.abort();
 
         markNewDomainsRef.current = true;
