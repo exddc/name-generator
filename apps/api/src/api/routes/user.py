@@ -1,6 +1,6 @@
 """User routes handling favorites and user-specific actions."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.models.api_models import (
     RequestFavorite,
@@ -8,6 +8,7 @@ from api.models.api_models import (
     DomainSuggestion,
 )
 from api.models.db_models import Domain as DomainDB, Favorite as FavoriteDB
+from api.security import AuthenticatedUser, ensure_user_matches, require_authenticated_user
 
 
 router = APIRouter(prefix="/user", tags=["user"])
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/user", tags=["user"])
 @router.post("/favorite")
 async def toggle_favorite(
     request: RequestFavorite,
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> dict:
     """
     Favorite or unfavorite a domain.
@@ -24,6 +26,8 @@ async def toggle_favorite(
     - Domain must exist in database
     - action: 'fav' to favorite, 'unfav' to unfavorite
     """
+    request.user_id = ensure_user_matches(request.user_id, auth_user)
+
     domain_obj = await DomainDB.get_or_none(domain=request.domain)
     if not domain_obj:
         raise HTTPException(
@@ -99,6 +103,7 @@ async def get_favorites(
     user_id: str | None = Query(None, description="User ID (required)"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Number of items per page"),
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> ResponseFavorites:
     """
     Get all favorited domains for a user.
@@ -106,16 +111,12 @@ async def get_favorites(
     Requires user_id as query parameter.
     Returns paginated results.
     """
-    if not user_id:
-        raise HTTPException(
-            status_code=400,
-            detail="User ID is required"
-        )
+    resolved_user_id = ensure_user_matches(user_id, auth_user)
     
-    total = await FavoriteDB.filter(user_id=user_id).count()
+    total = await FavoriteDB.filter(user_id=resolved_user_id).count()
     
     offset = (page - 1) * page_size
-    favorites = await FavoriteDB.filter(user_id=user_id).order_by("-created_at").offset(offset).limit(page_size).prefetch_related("domain")
+    favorites = await FavoriteDB.filter(user_id=resolved_user_id).order_by("-created_at").offset(offset).limit(page_size).prefetch_related("domain")
     
     domain_suggestions = [
         DomainSuggestion(

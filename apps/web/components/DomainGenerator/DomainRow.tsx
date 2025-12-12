@@ -9,9 +9,10 @@ import {
     FavoriteRequestBody,
     SimilarDomainsRequestBody,
 } from '@/lib/types';
-import { cn, getAnonRandomId, getDomainRegistrarUrl } from '@/lib/utils';
+import { cn, getDomainRegistrarUrl } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { toast } from '@/components/ui/sonner';
+import { apiFetch } from '@/lib/api-client';
 
 // Components
 import Link from 'next/link';
@@ -78,14 +79,10 @@ export default function DomainRow({
         const fetchRatings = async () => {
             try {
                 const params = new URLSearchParams();
-                if (session?.user?.id) {
-                    params.append('user_id', session.user.id);
-                } else {
-                    params.append('anon_random_id', getAnonRandomId());
-                }
+                params.append('page', '1');
                 params.append('page_size', '100'); // Fetch enough ratings
 
-                const response = await fetch(
+                const response = await apiFetch(
                     `${RATINGS_GET_URL}?${params.toString()}`
                 );
 
@@ -100,7 +97,9 @@ export default function DomainRow({
                     setDomainVotes(votesMap);
                 }
             } catch (error) {
-                console.warn('Failed to fetch ratings:', error);
+                if ((error as Error)?.message !== 'AUTH_REQUIRED') {
+                    console.warn('Failed to fetch ratings:', error);
+                }
             }
         };
 
@@ -109,17 +108,18 @@ export default function DomainRow({
 
     // Fetch existing favorites
     useEffect(() => {
-        const fetchFavorites = async () => {
-            if (!session?.user?.id) {
-                return; // Favorites require authentication
-            }
+        if (!session?.user?.id) {
+            setFavoritedDomains(new Set());
+            return;
+        }
 
+        const fetchFavorites = async () => {
             try {
                 const params = new URLSearchParams();
                 params.append('user_id', session.user.id);
                 params.append('page_size', '100'); // Fetch enough favorites
 
-                const response = await fetch(
+                const response = await apiFetch(
                     `${FAVORITE_API_URL}?${params.toString()}`
                 );
 
@@ -132,7 +132,9 @@ export default function DomainRow({
                     setFavoritedDomains(favoritesSet);
                 }
             } catch (error) {
-                console.warn('Failed to fetch favorites:', error);
+                if ((error as Error)?.message !== 'AUTH_REQUIRED') {
+                    console.warn('Failed to fetch favorites:', error);
+                }
             }
         };
 
@@ -149,7 +151,7 @@ export default function DomainRow({
 
         try {
             const domainName = domain.domain.split('.')[0];
-            const response = await fetch(
+            const response = await apiFetch(
                 `${DOMAIN_VARIANTS_URL}?domain_name=${domainName}&limit=${DROPDOWN_FETCH_LIMIT}`,
                 { signal: controller.signal }
             );
@@ -275,6 +277,10 @@ export default function DomainRow({
                 }
             }
         } catch (error) {
+            if ((error as Error)?.message === 'AUTH_REQUIRED') {
+                setError(true);
+                return;
+            }
             if ((error as Error).name !== 'AbortError') {
                 console.warn('Failed to fetch variants:', error);
                 setError(true);
@@ -322,7 +328,7 @@ export default function DomainRow({
                 requestBody.user_id = session.user.id;
             }
 
-            const response = await fetch(DOMAIN_SIMILAR_URL, {
+            const response = await apiFetch(DOMAIN_SIMILAR_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -452,6 +458,10 @@ export default function DomainRow({
                 }
             }
         } catch (error) {
+            if ((error as Error)?.message === 'AUTH_REQUIRED') {
+                setSimilarError(true);
+                return;
+            }
             if ((error as Error).name !== 'AbortError') {
                 console.warn('Failed to fetch similar domains:', error);
                 setSimilarError(true);
@@ -481,13 +491,7 @@ export default function DomainRow({
                 vote: vote as 1 | -1,
             };
 
-            if (session?.user?.id) {
-                requestBody.user_id = session.user.id;
-            } else {
-                requestBody.anon_random_id = getAnonRandomId();
-            }
-
-            const response = await fetch(RATING_API_URL, {
+            const response = await apiFetch(RATING_API_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -514,8 +518,10 @@ export default function DomainRow({
 
             onVote?.(domain, vote as 1 | -1);
         } catch (error) {
-            console.error('Failed to submit vote:', error);
-            toast.error('Failed to submit vote. Please try again.');
+            if ((error as Error)?.message !== 'AUTH_REQUIRED') {
+                console.error('Failed to submit vote:', error);
+                toast.error('Failed to submit vote. Please try again.');
+            }
         } finally {
             setVotingDomain(null);
         }
@@ -553,7 +559,7 @@ export default function DomainRow({
                 action,
             };
 
-            const response = await fetch(FAVORITE_API_URL, {
+            const response = await apiFetch(FAVORITE_API_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -590,8 +596,14 @@ export default function DomainRow({
                 toast.success(`Added ${domain} to favorites`);
             }
         } catch (error) {
-            console.error('Failed to toggle favorite:', error);
-            toast.error('Failed to update favorite. Please try again.');
+            if ((error as Error)?.message === 'AUTH_REQUIRED') {
+                toast.info('Sign in to favorite domains', {
+                    description: 'Log in to save your favorite names.',
+                });
+            } else {
+                console.error('Failed to toggle favorite:', error);
+                toast.error('Failed to update favorite. Please try again.');
+            }
         } finally {
             setFavoritingDomain(null);
         }

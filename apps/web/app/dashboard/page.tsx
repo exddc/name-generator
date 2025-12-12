@@ -2,7 +2,7 @@
 
 import { useSession } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     MetricsSummaryResponse,
@@ -48,6 +48,7 @@ import {
 } from 'lucide-react';
 
 import { PageShell, PageHeader } from '@/components/page-layout';
+import { apiFetch } from '@/lib/api-client';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -89,6 +90,17 @@ export default function Dashboard() {
     const [isLoadingWorkers, setIsLoadingWorkers] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    const fetchJson = useCallback(
+        async (url: string, label: string) => {
+            const response = await apiFetch(url);
+            if (!response.ok) {
+                throw new Error(`${label}: ${response.statusText}`);
+            }
+            return response.json();
+        },
+        []
+    );
+
     // Derived data
     const formattedChartData = history?.chart_data?.map((point) => ({
         ...point,
@@ -126,23 +138,13 @@ export default function Dashboard() {
                 // Summary
                 setIsLoadingSummary(true);
                 Promise.all([
-                    fetch(`${API_URL}/v1/metrics/summary?range=24h`).then(
-                        (res) => {
-                            if (!res.ok)
-                                throw new Error(
-                                    `Summary 24h: ${res.statusText}`
-                                );
-                            return res.json();
-                        }
+                    fetchJson(
+                        `${API_URL}/v1/metrics/summary?range=24h`,
+                        'Summary 24h'
                     ),
-                    fetch(`${API_URL}/v1/metrics/summary?range=all`).then(
-                        (res) => {
-                            if (!res.ok)
-                                throw new Error(
-                                    `Summary All: ${res.statusText}`
-                                );
-                            return res.json();
-                        }
+                    fetchJson(
+                        `${API_URL}/v1/metrics/summary?range=all`,
+                        'Summary All'
                     ),
                 ])
                     .then(([data24h, dataAll]) => {
@@ -157,12 +159,10 @@ export default function Dashboard() {
 
                 // History
                 setIsLoadingHistory(true);
-                fetch(`${API_URL}/v1/metrics/history?range=${timeRange}`)
-                    .then((res) => {
-                        if (!res.ok)
-                            throw new Error(`History: ${res.statusText}`);
-                        return res.json();
-                    })
+                fetchJson(
+                    `${API_URL}/v1/metrics/history?range=${timeRange}`,
+                    'History'
+                )
                     .then((data) => setHistory(data))
                     .catch((err) => {
                         console.error('History fetch error', err);
@@ -173,12 +173,10 @@ export default function Dashboard() {
                 // Queue
                 const queueRange = timeRange === '1h' ? '1h' : '24h';
                 setIsLoadingQueue(true);
-                fetch(`${API_URL}/v1/metrics/queue?range=${queueRange}`)
-                    .then((res) => {
-                        if (!res.ok)
-                            throw new Error(`Queue: ${res.statusText}`);
-                        return res.json();
-                    })
+                fetchJson(
+                    `${API_URL}/v1/metrics/queue?range=${queueRange}`,
+                    'Queue'
+                )
                     .then((data) => setQueueData(data))
                     .catch((err) => {
                         console.error('Queue fetch error', err);
@@ -187,12 +185,7 @@ export default function Dashboard() {
 
                 // Workers
                 setIsLoadingWorkers(true);
-                fetch(`${API_URL}/v1/metrics/workers`)
-                    .then((res) => {
-                        if (!res.ok)
-                            throw new Error(`Workers: ${res.statusText}`);
-                        return res.json();
-                    })
+                fetchJson(`${API_URL}/v1/metrics/workers`, 'Workers')
                     .then((data) => setWorkerData(data))
                     .catch((err) => {
                         console.error('Workers fetch error', err);

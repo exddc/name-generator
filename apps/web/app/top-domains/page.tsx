@@ -18,7 +18,7 @@ import {
     RatingRequestBody,
     FavoriteRequestBody,
 } from '@/lib/types';
-import { cn, getAnonRandomId, getDomainRegistrarUrl } from '@/lib/utils';
+import { cn, getDomainRegistrarUrl } from '@/lib/utils';
 import {
     ArrowUpDown,
     ArrowUp,
@@ -47,6 +47,7 @@ import {
 import Link from 'next/link';
 
 import { PageShell, PageHeader } from '@/components/page-layout';
+import { apiFetch } from '@/lib/api-client';
 
 const TOP_DOMAINS_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/top`;
 const RATING_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
@@ -154,14 +155,10 @@ export default function TopDomains() {
         const fetchRatings = async () => {
             try {
                 const params = new URLSearchParams();
-                if (session?.user?.id) {
-                    params.append('user_id', session.user.id);
-                } else {
-                    params.append('anon_random_id', getAnonRandomId());
-                }
+                params.append('page', '1');
                 params.append('page_size', '100');
 
-                const response = await fetch(
+                const response = await apiFetch(
                     `${RATINGS_GET_URL}?${params.toString()}`
                 );
 
@@ -176,7 +173,9 @@ export default function TopDomains() {
                     setDomainVotes(votesMap);
                 }
             } catch (error) {
-                console.warn('Failed to fetch ratings:', error);
+                if ((error as Error)?.message !== 'AUTH_REQUIRED') {
+                    console.warn('Failed to fetch ratings:', error);
+                }
             }
         };
 
@@ -196,13 +195,7 @@ export default function TopDomains() {
                 vote: vote as 1 | -1,
             };
 
-            if (session?.user?.id) {
-                requestBody.user_id = session.user.id;
-            } else {
-                requestBody.anon_random_id = getAnonRandomId();
-            }
-
-            const response = await fetch(RATING_API_URL, {
+            const response = await apiFetch(RATING_API_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -226,8 +219,10 @@ export default function TopDomains() {
                 return next;
             });
         } catch (error) {
-            console.error('Failed to submit vote:', error);
-            toast.error('Failed to submit vote. Please try again.');
+            if ((error as Error)?.message !== 'AUTH_REQUIRED') {
+                console.error('Failed to submit vote:', error);
+                toast.error('Failed to submit vote. Please try again.');
+            }
         } finally {
             setVotingDomain(null);
         }
@@ -262,7 +257,7 @@ export default function TopDomains() {
                 action,
             };
 
-            const response = await fetch(FAVORITE_API_URL, {
+            const response = await apiFetch(FAVORITE_API_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -296,8 +291,14 @@ export default function TopDomains() {
                 toast.success(`Added ${domain} to favorites`);
             }
         } catch (error) {
-            console.error('Failed to toggle favorite:', error);
-            toast.error('Failed to update favorite. Please try again.');
+            if ((error as Error)?.message === 'AUTH_REQUIRED') {
+                toast.info('Sign in to favorite domains', {
+                    description: 'Log in to save your favorite domain names.',
+                });
+            } else {
+                console.error('Failed to toggle favorite:', error);
+                toast.error('Failed to update favorite. Please try again.');
+            }
         } finally {
             setFavoritingDomain(null);
         }
@@ -572,12 +573,11 @@ export default function TopDomains() {
                 params.append('search', debouncedSearchQuery.trim());
             }
 
-            if (session?.user?.id) {
-                params.append('user_id', session.user.id);
-            }
-
-            const response = await fetch(
-                `${TOP_DOMAINS_API_URL}?${params.toString()}`
+            const response = await apiFetch(
+                `${TOP_DOMAINS_API_URL}?${params.toString()}`,
+                {},
+                // Don't retry auth errors since this page is public
+                false
             );
 
             if (response.ok) {
@@ -616,7 +616,11 @@ export default function TopDomains() {
                 setHasError(true);
             }
         } catch (error) {
-            console.warn('Failed to fetch top domains:', error);
+            if ((error as Error)?.message === 'AUTH_REQUIRED') {
+                toast.info('Sign in again to refresh top domains.');
+            } else {
+                console.warn('Failed to fetch top domains:', error);
+            }
             setHasError(true);
         } finally {
             setIsLoading(false);

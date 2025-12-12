@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Domain, DomainStatus } from '@/lib/types';
 import { toast } from '@/components/ui/sonner';
+import { apiFetch } from '@/lib/api-client';
 
 // Components
 import { Card } from '@/components/ui/card';
@@ -32,7 +33,7 @@ function FavoritesList({ userId }: { userId: string }) {
                 params.append('user_id', userId);
                 params.append('page_size', '100');
 
-                const response = await fetch(
+                const response = await apiFetch(
                     `${FAVORITE_API_URL}?${params.toString()}`
                 );
 
@@ -63,7 +64,11 @@ function FavoritesList({ userId }: { userId: string }) {
                     setError(true);
                 }
             } catch (error) {
-                console.warn('Failed to fetch favorites:', error);
+                if ((error as Error)?.message === 'AUTH_REQUIRED') {
+                    toast.info('Please sign in again to view favorites.');
+                } else {
+                    console.warn('Failed to fetch favorites:', error);
+                }
                 setError(true);
             } finally {
                 setIsLoading(false);

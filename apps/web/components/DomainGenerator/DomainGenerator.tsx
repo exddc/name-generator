@@ -9,6 +9,7 @@ import React, {
     useMemo,
 } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import Link from 'next/link';
 import {
     Domain,
     DomainStatus,
@@ -19,6 +20,7 @@ import {
 import { useSession } from '@/lib/auth-client';
 import { usePlausible } from 'next-plausible';
 import { toast } from '@/components/ui/sonner';
+import { apiFetch } from '@/lib/api-client';
 
 // Components
 import DomainSection from './DomainSection';
@@ -50,6 +52,7 @@ export default function DomainGenerator({
 }: DomainGeneratorProps) {
     const plausible = usePlausible();
     const { data: session } = useSession();
+    const isAuthenticated = !!session;
     const [userInput, setUserInput] = useState(initialSearch || '');
     const [domains, setDomains] = useState<DomainWithMeta[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -246,7 +249,7 @@ export default function DomainGenerator({
         setLoadingText('Retrying...');
 
         fetchSuggestionsInternal(controller, false);
-    }, [userInput, session?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [session?.user?.id, userInput]);
 
     const buildPreferences = (): UserPreferencesInput | undefined => {
         const likedDomains: string[] = [];
@@ -309,14 +312,26 @@ export default function DomainGenerator({
                 }
             }
 
-            const response = await fetch(DOMAIN_SUGGESTION_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(requestBody),
-                signal: controller.signal,
-            });
+            let response: Response;
+            try {
+                response = await apiFetch(DOMAIN_SUGGESTION_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal: controller.signal,
+                });
+            } catch (error) {
+                // if ((error as Error)?.message === 'AUTH_REQUIRED') {
+                //     toast.info('Sign in to generate new domain ideas', {
+                //         description:
+                //             'Log in to request more domain suggestions.',
+                //     });
+                //     return;
+                // }
+                throw error;
+            }
 
             if (!response.ok || !response.body) {
                 let errorData: ApiError;

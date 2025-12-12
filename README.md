@@ -1,108 +1,76 @@
-# Project Overview
+# Name Generator
 
-This project is a containerized application composed of multiple services orchestrated with Docker Compose. The core services include:
-
--   Domain Checker Service: A Python-based service to check domain availability.
--   Postgres: A relational database for storing domain-related data.
+Webpage for generating and checking domain names, composed of a Next.js frontend, FastAPI backend, and background workers.
 
 ## Project Structure
 
 ```plaintext
 .
-├── domain_checker/ # Domain Checker service code and related files
-│ ├── src/ # Source code for the domain_checker service
-│ ├── tests/ # Unit tests for the domain_checker service
-│ ├── Dockerfile # Dockerfile for the domain_checker service
-│ └── pyproject.toml # Poetry configuration for the domain_checker
-├── docker-compose.yaml # Orchestrates services
-├── .env # Environment variables for services
-└── README.md # Project documentation (this file)
+├── apps/
+│   ├── api/        # FastAPI backend service
+│   ├── web/        # Next.js frontend application
+│   └── worker/     # Python background worker for domain checks
+├── docker-compose.yaml
+└── README.md
 ```
 
-### Key Files
+## Quick Start
 
--   domain_checker/: Contains the domain_checker service implementation.
--   docker-compose.yaml: Defines the services, networks, and volumes used by the project.
--   .env: Stores environment variables (e.g., database credentials) used in the docker-compose.yaml file.
+### Prerequisites
 
-## Prerequisites
+- Docker & Docker Compose
+- Bun
+- Python 3.12+ & Poetry
 
-Ensure the following are installed on your system:
+### Environment Setup
 
--   Docker
--   Docker Compose
+1.  Review the `docker-compose.yaml` and individual app READMEs for required environment variables.
+2.  Create a `.env` file in the root directory if needed to override defaults for Docker services.
 
-## Setup
+### Running with Docker Compose
 
-### Clone the Repository:
+The core infrastructure can be started using Docker Compose:
+
+```bash
+# Start all backend services
+docker-compose --profile dev --profile api --profile worker up -d
+```
+
+### Development
+
+For development instructions, refer to the specific application documentation in the `apps/` directory:
+
+-   **Frontend**: [apps/web/README.md](apps/web/README.md)
+-   **API**: [apps/api/README.md](apps/api/README.md)
+-   **Worker**: [apps/worker/README.md](apps/worker/README.md)
+
+The api endpoints can be tested with the [Bruno](https://github.com/usebruno/bruno) client. The collections are in the `apps/api/collections/` directory.
+
+### Authentication for Bruno
+
+To interact with the protected API endpoints via Bruno:
+
+1.  **Generate a Token**:
+    Run the helper script in the `apps/api` directory:
 
     ```bash
-    git clone <repository-url>
-    cd <repository-folder>
+    # Ensure you have the API_JWT_SECRET environment variable set (see apps/api/.env or export it in the terminal)
+    export API_JWT_SECRET=your_secret_here
+    cd apps/api
+    poetry run python scripts/generate_jwt.py --user-id "local-test-user" --email "test@example.com" --scopes metrics:read
     ```
 
-### Create the .env File:
+2.  **Set the token in Bruno**:
+    *   Open the collection in Bruno.
+    *   Navigate to **Collection Settings > Authentication**.
+    *   Select **Bearer Token** authentication method.
+    *   Paste the token into the **Token** field.
 
-Copy the example .env file or create a new one in the root directory:
 
-```plaintext
-DOMAIN_CHECKER_PORT=8000
-DB_PORT=5432
-DB_USER=admin
-DB_PASSWORD=securepassword
-DB_NAME=domain_checker
-```
+## Services
 
-### Build Services:
-
-Run the following command to build the domain_checker service and its dependencies:
-
-```bash
-docker-compose build
-```
-
-## Running the Application
-
-Start the services using Docker Compose:
-
-```bash
-docker-compose up -d
-```
-
-### Access Services
-
--   Domain Checker: Visit http://localhost:8000 in your browser or use a tool like curl to interact with the service.
-
-### Check Container Status
-
-To check if the services are running:
-
-```bash
-docker ps
-```
-
-## Development Workflow
-
-### Run Tests:
-
-Inside the domain_checker directory, run tests with:
-
-```bash
-poetry run pytest
-```
-
-### Add New Features:
-
-Update the source files in src/domain_checker/ and rebuild the service:
-
-```bash
-docker-compose build domain_checker
-```
-
-### Restart Services:
-
-Apply updates by restarting services:
-
-```bash
-docker-compose up -d
-```
+-   **API**: FastAPI application at `http://localhost:8000`
+-   **Web App**: Bun application at `http://localhost:3000`
+-   **Worker**: Python background worker
+-   **Postgres**: Database service
+-   **Redis**: Queue and caching service
