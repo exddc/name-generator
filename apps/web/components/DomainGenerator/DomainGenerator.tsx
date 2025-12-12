@@ -9,6 +9,7 @@ import React, {
     useMemo,
 } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import Link from 'next/link';
 import {
     Domain,
     DomainStatus,
@@ -51,6 +52,7 @@ export default function DomainGenerator({
 }: DomainGeneratorProps) {
     const plausible = usePlausible();
     const { data: session } = useSession();
+    const isAuthenticated = !!session;
     const [userInput, setUserInput] = useState(initialSearch || '');
     const [domains, setDomains] = useState<DomainWithMeta[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -321,12 +323,13 @@ export default function DomainGenerator({
                     signal: controller.signal,
                 });
             } catch (error) {
-                if ((error as Error)?.message === 'AUTH_REQUIRED') {
-                    toast.info('Sign in to generate new domain ideas', {
-                        description: 'Log in to request more domain suggestions.',
-                    });
-                    return;
-                }
+                // if ((error as Error)?.message === 'AUTH_REQUIRED') {
+                //     toast.info('Sign in to generate new domain ideas', {
+                //         description:
+                //             'Log in to request more domain suggestions.',
+                //     });
+                //     return;
+                // }
                 throw error;
             }
 
@@ -604,19 +607,6 @@ export default function DomainGenerator({
             id="domain-generator-form"
             className="w-full max-w-2xl space-y-4 mt-6 bg-white p-5 rounded-2xl backdrop-blur-lg bg-opacity-40 border border-neutral-200 transition-all duration-300"
         >
-            {!isAuthenticated && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                        <p className="font-semibold">Sign in to generate domains</p>
-                        <p className="text-amber-800">
-                            Authentication is required before we can stream suggestions from the API.
-                        </p>
-                    </div>
-                    <Button asChild size="sm" variant="outline">
-                        <Link href="/login">Go to login</Link>
-                    </Button>
-                </div>
-            )}
             <div className="flex items-center text-xs text-neutral-500 w-full justify-center">
                 <span className="font-semibold text-black bg-neutral-50 px-3 py-1 rounded-l-lg border border-neutral-300 hover:cursor-pointer hover:bg-neutral-100 transition-all duration-300 hover:text-neutral-800 hover:shadow-sm">
                     Domain

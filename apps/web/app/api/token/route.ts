@@ -35,7 +35,7 @@ async function issueToken(request: NextRequest) {
         );
     }
 
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
 
     let sessionResult: SessionResult = null;
     try {

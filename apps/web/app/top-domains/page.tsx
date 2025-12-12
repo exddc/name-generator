@@ -574,7 +574,10 @@ export default function TopDomains() {
             }
 
             const response = await apiFetch(
-                `${TOP_DOMAINS_API_URL}?${params.toString()}`
+                `${TOP_DOMAINS_API_URL}?${params.toString()}`,
+                {},
+                // Don't retry auth errors since this page is public
+                false
             );
 
             if (response.ok) {

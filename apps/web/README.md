@@ -20,6 +20,23 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Environment Variables
+
+The application requires the following environment variables to be set in a `.env` file:
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_URL` | URL of the backend API | `http://localhost:8000` |
+| `BETTER_AUTH_URL` | URL of the auth server (internal) | `http://localhost:3000` |
+| `NEXT_PUBLIC_BETTER_AUTH_URL` | URL of the auth server (public) | `http://localhost:3000` |
+| `BETTER_AUTH_SECRET` | Secret for Better Auth | (Required) |
+| `RESEND_API_KEY` | API Key for Resend (Email service) | (Required) |
+| `RESEND_FROM_EMAIL` | Email address to send from | (Required) |
+| `API_JWT_SECRET` | Shared secret for signing API tokens | (Required) |
+| `API_JWT_ISSUER` | JWT Issuer claim | `domain-generator-web` |
+| `API_JWT_AUDIENCE` | JWT Audience claim | `domain-generator-api` |
+| `API_JWT_ALGORITHM` | JWT signing algorithm | `HS256` |
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
