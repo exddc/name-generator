@@ -193,7 +193,7 @@ export default function Profile() {
                                 <label className="block text-sm font-medium mb-2">
                                     Email
                                 </label>
-                                <div className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm items-center text-muted-foreground">
+                                <div className="flex h-9 w-full max-w-sm rounded-md border border-input bg-white px-3 py-1 text-sm items-center text-muted-foreground">
                                     {isPending ? (
                                         <Skeleton className="h-4 w-48" />
                                     ) : (
@@ -206,7 +206,7 @@ export default function Profile() {
                                 <label className="block text-sm font-medium mb-2">
                                     Name
                                 </label>
-                                <div className="flex gap-2">
+                                <div className="flex gap-2 max-w-sm w-full">
                                     {isPending ? (
                                         <Skeleton className="h-10 w-full" />
                                     ) : (
@@ -239,7 +239,7 @@ export default function Profile() {
                         </div>
                     </Card>
 
-                    <Card className="w-full flex flex-col mx-auto border-neutral-200">
+                    {/* <Card className="w-full flex flex-col mx-auto border-neutral-200">
                         <div className="mb-6">
                             <h2 className="text-xl font-heading font-semibold tracking-tight mb-2">
                                 Settings
@@ -248,7 +248,7 @@ export default function Profile() {
                                 Manage your settings
                             </p>
                         </div>
-                    </Card>
+                    </Card> */}
                 </div>
 
                 <Card className="w-full flex flex-col border-neutral-200">
