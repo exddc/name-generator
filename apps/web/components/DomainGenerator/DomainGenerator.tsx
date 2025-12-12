@@ -1,7 +1,13 @@
 'use client';
 
 // Libraries
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, {
+    useEffect,
+    useRef,
+    useState,
+    useCallback,
+    useMemo,
+} from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
     Domain,
@@ -27,6 +33,11 @@ import {
 // Constants
 const DOMAIN_SUGGESTION_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/stream`;
 
+type DomainWithMeta = Domain & {
+    arrivalBatch?: number;
+    arrivalSeq?: number;
+};
+
 // Props
 type DomainGeneratorProps = {
     onDomainsStatusChange?: (hasDomains: boolean) => void;
@@ -40,7 +51,7 @@ export default function DomainGenerator({
     const plausible = usePlausible();
     const { data: session } = useSession();
     const [userInput, setUserInput] = useState(initialSearch || '');
-    const [domains, setDomains] = useState<Domain[]>([]);
+    const [domains, setDomains] = useState<DomainWithMeta[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [loadingStartTime, setLoadingStartTime] = useState<number | null>(
         null
@@ -57,9 +68,11 @@ export default function DomainGenerator({
     const [canRetry, setCanRetry] = useState(false);
 
     // Domain Filters
-    const [freeDomains, setFreeDomains] = useState<Domain[]>([]);
-    const [registeredDomains, setRegisteredDomains] = useState<Domain[]>([]);
-    const [unknownDomains, setUnknownDomains] = useState<Domain[]>([]);
+    const [freeDomains, setFreeDomains] = useState<DomainWithMeta[]>([]);
+    const [registeredDomains, setRegisteredDomains] = useState<
+        DomainWithMeta[]
+    >([]);
+    const [unknownDomains, setUnknownDomains] = useState<DomainWithMeta[]>([]);
 
     // User votes for personalized suggestions
     const [domainVotes, setDomainVotes] = useState<Map<string, 1 | -1>>(
@@ -117,6 +130,47 @@ export default function DomainGenerator({
     }, [userInput]);
 
     const markNewDomainsRef = useRef(false);
+    const batchCounterRef = useRef(0);
+    const currentBatchRef = useRef(0);
+    const arrivalSeqRef = useRef(0);
+
+    const sortDomains = useCallback((items: DomainWithMeta[]) => {
+        const getTimestamp = (value?: string) => {
+            const parsed = value ? Date.parse(value) : NaN;
+            return Number.isNaN(parsed) ? null : parsed;
+        };
+
+        return [...items].sort((a, b) => {
+            const aBatch = a.arrivalBatch ?? 0;
+            const bBatch = b.arrivalBatch ?? 0;
+            if (aBatch !== bBatch) {
+                return bBatch - aBatch; // Newer batches first
+            }
+
+            const aSeq = a.arrivalSeq ?? 0;
+            const bSeq = b.arrivalSeq ?? 0;
+            if (aSeq !== bSeq) {
+                return aSeq - bSeq; // Preserve arrival order within batch
+            }
+
+            const aCreated = getTimestamp(a.created_at);
+            const bCreated = getTimestamp(b.created_at);
+            if (
+                aCreated !== null &&
+                bCreated !== null &&
+                aCreated !== bCreated
+            ) {
+                return aCreated - bCreated; // Older domains first within the same group
+            }
+
+            return a.domain.localeCompare(b.domain);
+        });
+    }, []);
+
+    const sortedDomains = useMemo(
+        () => sortDomains(domains),
+        [domains, sortDomains]
+    );
 
     const applySuggestionMessage = (message: StreamMessage) => {
         setDomains((prev) => {
@@ -133,11 +187,16 @@ export default function DomainGenerator({
                     if (existingIndex >= 0) {
                         next[existingIndex] = {
                             ...item,
+                            arrivalBatch: next[existingIndex].arrivalBatch,
+                            arrivalSeq: next[existingIndex].arrivalSeq,
                             isNew: next[existingIndex].isNew,
                         };
                     } else {
+                        arrivalSeqRef.current += 1;
                         next.push({
                             ...item,
+                            arrivalBatch: currentBatchRef.current,
+                            arrivalSeq: arrivalSeqRef.current,
                             isNew: markNewDomainsRef.current,
                         });
                         hasNewDomains = true;
@@ -420,6 +479,8 @@ export default function DomainGenerator({
         abortControllerRef.current?.abort();
 
         const isSubsequentSearch = domains.length > 0;
+        batchCounterRef.current += 1;
+        currentBatchRef.current = batchCounterRef.current;
         markNewDomainsRef.current = isSubsequentSearch;
         setDomains((prev) => prev.map((d) => ({ ...d, isNew: false })));
 
@@ -443,6 +504,8 @@ export default function DomainGenerator({
     const handleGenerateMore = async (creative: boolean = false) => {
         abortControllerRef.current?.abort();
 
+        batchCounterRef.current += 1;
+        currentBatchRef.current = batchCounterRef.current;
         markNewDomainsRef.current = true;
         setDomains((prev) => prev.map((d) => ({ ...d, isNew: false })));
 
@@ -500,15 +563,15 @@ export default function DomainGenerator({
 
     useEffect(() => {
         setFreeDomains(
-            domains.filter((d) => d.status === DomainStatus.AVAILABLE)
+            sortedDomains.filter((d) => d.status === DomainStatus.AVAILABLE)
         );
         setRegisteredDomains(
-            domains.filter((d) => d.status === DomainStatus.REGISTERED)
+            sortedDomains.filter((d) => d.status === DomainStatus.REGISTERED)
         );
         setUnknownDomains(
-            domains.filter((d) => d.status === DomainStatus.UNKNOWN)
+            sortedDomains.filter((d) => d.status === DomainStatus.UNKNOWN)
         );
-    }, [domains]);
+    }, [sortedDomains]);
 
     useEffect(() => {
         if (
