@@ -24,16 +24,18 @@ Webpage for generating and checking domain names, composed of a Next.js frontend
 
 ### Environment Setup
 
-1.  Review the `docker-compose.yaml` and individual app READMEs for required environment variables.
-2.  Create a `.env` file in the root directory if needed to override defaults for Docker services.
+1.  Copy `.env.example` to `.env` and fill in the required secrets.
+2.  Optional: set `WORKER_REPLICAS` or override ports/URLs to taste. The other values have sensible defaults from the app configs.
 
 ### Running with Docker Compose
 
-The core infrastructure can be started using Docker Compose:
+The full stack can be started with profiles for infra, backend, and frontend. Worker count is controlled via `WORKER_REPLICAS` using Compose compatibility via `deploy.replicas`:
 
 ```bash
-# Start all backend services
-docker-compose --profile dev --profile api --profile worker up -d
+# Start everything
+WORKER_REPLICAS=2 docker compose --compatibility \
+  --profile infra --profile backend --profile frontend \
+  up --build -d
 ```
 
 ### Development

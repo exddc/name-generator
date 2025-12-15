@@ -1,7 +1,7 @@
 services:
   redis:
     image: bitnami/redis:latest
-    profiles: [dev]
+    profiles: [infra]
     environment:
       - ALLOW_EMPTY_PASSWORD=yes
     ports:
@@ -14,7 +14,7 @@ services:
 
   postgres:
     image: postgres:18
-    profiles: [dev]
+    profiles: [infra]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
@@ -36,31 +36,29 @@ services:
   worker:
     build:
       context: ./apps/worker
-    profiles: [worker]
+    profiles: [backend]
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      RQ_QUEUE: ${RQ_QUEUE:-domain_checks}
-      DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
     depends_on:
-      - redis
+      redis:
+        condition: service_started
     networks:
       - domain-generator-network
+    restart: unless-stopped
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
 
   api:
     build:
       context: ./apps/api
-    profiles: [api]
+    profiles: [backend]
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      RQ_QUEUE: ${RQ_QUEUE:-domain_checks}
-      DOMAIN_CHECKER_DNS_TIMEOUT: ${DOMAIN_CHECKER_DNS_TIMEOUT:-3.0}
       POSTGRES_HOST: postgres
-      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
-      POSTGRES_DB: ${POSTGRES_DB:-domain_generator}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      API_JWT_SECRET: ${API_JWT_SECRET}
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,6 +66,47 @@ services:
         condition: service_started
     networks:
       - domain-generator-network
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+        NEXT_PUBLIC_BETTER_AUTH_URL: ${NEXT_PUBLIC_BETTER_AUTH_URL:-http://localhost:3000}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-secret}
+        API_JWT_SECRET: ${API_JWT_SECRET:-please-change-me}
+        API_JWT_ISSUER: ${API_JWT_ISSUER:-domain-generator-web}
+        API_JWT_AUDIENCE: ${API_JWT_AUDIENCE:-domain-generator-api}
+        API_JWT_ALGORITHM: ${API_JWT_ALGORITHM:-HS256}
+        PORT: ${WEB_PORT:-3000}
+    profiles: [frontend]
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      NEXT_PUBLIC_BETTER_AUTH_URL: ${NEXT_PUBLIC_BETTER_AUTH_URL:-http://localhost:3000}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-secret}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      API_JWT_SECRET: ${API_JWT_SECRET:-please-change-me}
+      API_JWT_ISSUER: ${API_JWT_ISSUER:-domain-generator-web}
+      API_JWT_AUDIENCE: ${API_JWT_AUDIENCE:-domain-generator-api}
+      API_JWT_ALGORITHM: ${API_JWT_ALGORITHM:-HS256}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-domain_generator}
+      PORT: ${WEB_PORT:-3000}
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    networks:
+      - domain-generator-network
+    restart: unless-stopped
 
 networks:
   domain-generator-network:
