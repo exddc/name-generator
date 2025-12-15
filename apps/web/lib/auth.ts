@@ -23,7 +23,9 @@ const buildLoginEmailHtml = (url: string, code: string) =>
     `
 <p>Hi there,</p>
 <p>Click the link below to sign in to Domain Generator:</p>
-<p><a href="${url}">Login to Domain Generator</a></p>
+<p>
+    <a href="${url}" style="display: inline-block; background-color: #ffffff; border: 1px solid #d1d5db; border-radius: 8px; padding: 12px 24px; font-size: 14px; color: #000000; text-decoration: none; font-weight: 500;">Login to Domain Generator</a>
+</p>
 <p>Alternatively, you can use the code below to sign in:</p>
 <p style="font-size: 24px; font-weight: bold; letter-spacing: 4px; text-align: center; padding: 20px; background-color: #f3f4f6; border-radius: 8px; margin: 20px 0;">${code}</p>
 <p>This code and link will expire shortly. If you didn't request it, feel free to ignore this email.</p>
@@ -68,7 +70,7 @@ export const auth = betterAuth({
                         from: `Domain Generator <${resendFromEmail}>`,
                         to: email,
                         subject: "Sign in to Domain Generator",
-                        html: `<p>Click to sign in: <a href="${url}">${url}</a></p>`,
+                        html: `<p>Click the button below to sign in:</p><p><a href="${url}" style="display: inline-block; background-color: #ffffff; border: 1px solid #d1d5db; border-radius: 8px; padding: 12px 24px; font-size: 14px; color: #000000; text-decoration: none; font-weight: 500;">Sign in to Domain Generator</a></p>`,
                         text: `Click to sign in: ${url}`,
                     });
                 } catch (error) {
