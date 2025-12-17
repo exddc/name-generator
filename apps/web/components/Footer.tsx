@@ -15,6 +15,12 @@ export default function Footer() {
                     <Link href="/top-domains" className="">
                         Top Rated Domains
                     </Link>
+                    <Link
+                        href="https://github.com/exddc/name-generator"
+                        target="_blank"
+                    >
+                        GitHub
+                    </Link>
                 </div>
                 <div className="flex flex-col font-normal text-sm text-right gap-2">
                     <span className="font-semibold text-base">

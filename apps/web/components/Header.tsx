@@ -71,6 +71,19 @@ export default function Header() {
                                     asChild
                                     className={navigationMenuTriggerStyle()}
                                 >
+                                    <Link
+                                        href="https://github.com/exddc/name-generator"
+                                        target="_blank"
+                                    >
+                                        GitHub
+                                    </Link>
+                                </NavigationMenuLink>
+                            </NavigationMenuItem>
+                            <NavigationMenuItem>
+                                <NavigationMenuLink
+                                    asChild
+                                    className={navigationMenuTriggerStyle()}
+                                >
                                     {mounted && session?.user ? (
                                         <Link href="/profile">Profile</Link>
                                     ) : (
