@@ -1,5 +1,6 @@
 {
     "python.venvPath": "/Users/timoweiss/Projects/name-generator/apps/worker/.venv",
-    "python.defaultInterpreterPath": "/Users/timoweiss/Projects/name-generator/apps/worker/.venv/bin/python"
+    "python.defaultInterpreterPath": "/Users/timoweiss/Projects/name-generator/apps/worker/.venv/bin/python",
+    "python.languageServer": "None"
 }
 
