@@ -8,6 +8,7 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Public_Sans, Manrope } from 'next/font/google';
 import { Toaster } from '@/components/ui/sonner';
+import Script from 'next/script';
 
 const publicSans = Public_Sans({
     variable: '--font-heading',
@@ -92,6 +93,11 @@ export default function RootLayout({
                 </PlausibleProvider>
                 <Toaster position="bottom-right" richColors closeButton />
             </body>
+            <Script
+                defer
+                src="https://analytics.timoweiss.me/script.js"
+                data-website-id="ec4fa242-4a23-43c8-86a2-833f510046ae"
+            ></Script>
         </html>
     );
 }
