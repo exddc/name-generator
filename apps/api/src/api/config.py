@@ -1,7 +1,7 @@
 import os
 from typing import List
 
-from pydantic import computed_field
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -38,20 +38,24 @@ class Settings(BaseSettings):
     """How long the API waits for job results before returning UNKNOWN"""
 
     # Groq Settings
-    groq_api_key: str = os.environ.get("GROQ_API_KEY")
+    groq_api_key: str | None = os.environ.get("GROQ_API_KEY")
     """Groq API key"""
-    groq_model: str = os.environ.get("GROQ_MODEL", "qwen/qwen3-32b")
+    groq_model: str = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
     """Groq model to use"""
-    groq_model_reasoning_effort: str = os.environ.get("GROQ_MODEL_REASONING_EFFORT", "none")
+    groq_model_reasoning_effort: str = os.environ.get("GROQ_MODEL_REASONING_EFFORT", "low")
     """Groq model reasoning effort"""
     groq_model_stream: bool = os.environ.get("GROQ_MODEL_STREAM", False)
-    """Groq model stream"""
+    """Must remain false because this client consumes complete responses"""
     groq_model_temperature: float = os.environ.get("GROQ_MODEL_TEMPERATURE", 0.6)
     """Groq model temperature"""
     groq_model_max_completion_tokens: int = os.environ.get("GROQ_MODEL_MAX_COMPLETION_TOKENS", 4096)
     """Groq model max completion tokens"""
     groq_model_top_p: float = os.environ.get("GROQ_MODEL_TOP_P", 0.95)
     """Groq model top p"""
+    groq_model_request_timeout_seconds: float = os.environ.get("GROQ_MODEL_REQUEST_TIMEOUT_SECONDS", 15.0)
+    """Provider request timeout"""
+    groq_validate_model_on_startup: bool = os.environ.get("GROQ_VALIDATE_MODEL_ON_STARTUP", True)
+    """Verify that the configured model is available before accepting traffic"""
 
     # CORS Settings
     cors_allow_origins: str | None = os.environ.get("CORS_ALLOW_ORIGINS", "http://localhost:3000")
@@ -73,6 +77,29 @@ class Settings(BaseSettings):
     max_suggestions_retries: int = int(os.environ.get("MAX_SUGGESTIONS_RETRIES", "5"))
     """Maximum attempts to fetch enough available suggestions"""
 
+    @model_validator(mode="after")
+    def validate_groq_model_config(self) -> "Settings":
+        if self.groq_model != "openai/gpt-oss-20b":
+            raise ValueError("GROQ_MODEL must be openai/gpt-oss-20b")
+
+        if self.groq_model_reasoning_effort not in {"low", "medium", "high"}:
+            raise ValueError(
+                "GROQ_MODEL_REASONING_EFFORT must be one of: high, low, medium"
+            )
+
+        if self.groq_model_stream:
+            raise ValueError("GROQ_MODEL_STREAM must be false; streaming completions are not consumed")
+
+        if not 0 <= self.groq_model_temperature <= 2:
+            raise ValueError("GROQ_MODEL_TEMPERATURE must be between 0 and 2")
+        if not 0 <= self.groq_model_top_p <= 1:
+            raise ValueError("GROQ_MODEL_TOP_P must be between 0 and 1")
+        if self.groq_model_max_completion_tokens < 1:
+            raise ValueError("GROQ_MODEL_MAX_COMPLETION_TOKENS must be positive")
+        if self.groq_model_request_timeout_seconds <= 0:
+            raise ValueError("GROQ_MODEL_REQUEST_TIMEOUT_SECONDS must be positive")
+        return self
+
     @computed_field(return_type=str)
     def database_url(self) -> str:
         """Return the database connection URL for TortoiseORM."""
@@ -82,7 +109,6 @@ class Settings(BaseSettings):
 
         # Format: postgres://user:password@host:port/database
         url = f"postgres://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
-        print(f"Database URL: {url}")
         return url
     
     def get_tortoise_config(self) -> dict:

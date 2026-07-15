@@ -63,6 +63,22 @@ This service uses **Aerich** for schema management with TortoiseORM. All migrati
 
 API documentation is available at http://localhost:8000/docs.
 
+## Groq model
+
+The production model is `openai/gpt-oss-20b`. Configuration validation rejects
+a different model, unsupported reasoning values, and streaming. Startup also
+checks that Groq can retrieve the exact configured model before the API accepts
+traffic.
+
+Effective non-secret model configuration is logged during startup. Prompts and
+credentials are never included in these operational events.
+
+Run the live provider contract test with:
+
+```bash
+RUN_GROQ_CONTRACT_TEST=1 poetry run pytest tests/test_groq_contract.py -q
+```
+
 ## Authentication
 
 All production endpoints are protected with a short-lived JWT that must be supplied via the standard `Authorization: Bearer <token>` header. The API validates the token using the following environment variables:
