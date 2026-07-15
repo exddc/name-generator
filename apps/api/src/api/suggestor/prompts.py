@@ -48,9 +48,9 @@ Key considerations:
 4. **Avoid Domain Variations**: Do not generate variations of the same domain name with different TLDs.
 5. **Ensure Relevance**: Generate domain names that are directly relevant to the user's input, focusing on the local context and business type.
 
-Return ONLY a JSON array of domain names (strings) with no extra commentary.
+Return ONLY a JSON object with a "candidates" array of domain names (strings), with no extra commentary.
 
-Example output: ["mydomain.com", "anotheridea.co"]
+Example output: {{"candidates": ["mydomain.com", "anotheridea.co"]}}
 """.strip()
 
 LEXICON_PROMPT_TEMPLATE: str = """
@@ -88,10 +88,10 @@ Step 4 — **Convert the best candidates into domains**
 - Do **not** output obviously trademarked or widely known names.
 - Use **only English characters** (ASCII letters, numbers, and hyphens). Do not include Chinese characters or any other non-English characters.
 
-Return ONLY a JSON array of domains, no commentary.
+Return ONLY a JSON object with a "candidates" array of domains, no commentary.
 
 Example output:
-["inklingtype.com", "keylore.com", "musekeys.com"]
+{{"candidates": ["inklingtype.com", "keylore.com", "musekeys.com"]}}
 """.strip()
 
 
@@ -126,10 +126,10 @@ Step 3 — **Apply domain best practices**
 - Do **not** give multiple TLD variations of the same name.
 - Use **only English characters** (ASCII letters, numbers, and hyphens).
 
-Return ONLY a JSON array of domains, no commentary.
+Return ONLY a JSON object with a "candidates" array of domains, no commentary.
 
 Example output:
-["brandflow.com", "sparkname.com", "nexthub.io"]
+{{"candidates": ["brandflow.com", "sparkname.com", "nexthub.io"]}}
 """.strip()
 
 
@@ -162,10 +162,10 @@ Guidelines:
 - Use **only English characters** (ASCII letters, numbers, and hyphens).
 - Avoid trademarked or widely known brand names.
 
-Return ONLY a JSON array of domains, no commentary.
+Return ONLY a JSON object with a "candidates" array of domains, no commentary.
 
 Example output for source "maker.com":
-["makers.com", "makerhub.com", "builder.com", "make.com", "makerlist.com", "crafter.com"]
+{{"candidates": ["makers.com", "makerhub.com", "builder.com", "make.com", "makerlist.com", "crafter.com"]}}
 """.strip()
 
 
