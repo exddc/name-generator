@@ -63,18 +63,15 @@ This service uses **Aerich** for schema management with TortoiseORM. All migrati
 
 API documentation is available at http://localhost:8000/docs.
 
-## Groq model profile
+## Groq model
 
-The production default is `openai/gpt-oss-20b` through the `gpt-oss-20b`
-profile. The profile rejects mismatched models, unsupported reasoning values,
-reasoning output, and provider streaming during settings validation. Startup
-also checks that Groq can retrieve the exact configured model before the API
-accepts traffic.
+The production model is `openai/gpt-oss-20b`. Configuration validation rejects
+a different model, unsupported reasoning values, and streaming. Startup also
+checks that Groq can retrieve the exact configured model before the API accepts
+traffic.
 
-Effective non-secret model configuration is logged during startup and exposed
-as `domain_generator_llm_model_info` at
-`http://localhost:8000/internal/metrics`. Prompts and credentials are never
-included in these operational events.
+Effective non-secret model configuration is logged during startup. Prompts and
+credentials are never included in these operational events.
 
 Run the live provider contract test with:
 

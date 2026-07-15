@@ -4,8 +4,6 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from starlette.responses import Response
 from tortoise.contrib.fastapi import register_tortoise
 
 from api import __title__, __description__, __version__
@@ -61,10 +59,6 @@ def init_fastapi() -> FastAPI:
     app.include_router(user.router, prefix="/v1", tags=["user"])
     app.include_router(metrics.router, prefix="/v1", tags=["metrics"])
     app.include_router(health.router, tags=["health"])
-
-    @app.get("/internal/metrics", include_in_schema=False)
-    async def operational_metrics() -> Response:
-        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     return app
 

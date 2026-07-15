@@ -1,42 +1,8 @@
 import os
-from dataclasses import dataclass
 from typing import List
 
 from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-@dataclass(frozen=True)
-class GroqModelProfile:
-    model: str
-    reasoning_efforts: frozenset[str]
-    response_format: str
-    supports_include_reasoning: bool
-
-
-GROQ_MODEL_PROFILES = {
-    "gpt-oss-20b": GroqModelProfile(
-        model="openai/gpt-oss-20b",
-        reasoning_efforts=frozenset({"low", "medium", "high"}),
-        response_format="json_schema",
-        supports_include_reasoning=True,
-    ),
-    # Production-safe whole-service rollback if the 20B canary must stop after Qwen retires.
-    "gpt-oss-120b-emergency": GroqModelProfile(
-        model="openai/gpt-oss-120b",
-        reasoning_efforts=frozenset({"low", "medium", "high"}),
-        response_format="json_schema",
-        supports_include_reasoning=True,
-    ),
-    # Time-boxed rollback profile. Groq retires this model on 2026-07-17.
-    "qwen3-32b-rollback": GroqModelProfile(
-        model="qwen/qwen3-32b",
-        reasoning_efforts=frozenset({"none", "default"}),
-        response_format="json_object",
-        supports_include_reasoning=False,
-    ),
-}
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=os.getenv("ENV_FILE", ".env"), extra="ignore")
@@ -74,18 +40,12 @@ class Settings(BaseSettings):
     # Groq Settings
     groq_api_key: str | None = os.environ.get("GROQ_API_KEY")
     """Groq API key"""
-    groq_model_profile: str = os.environ.get("GROQ_MODEL_PROFILE", "gpt-oss-20b")
-    """Validated parameter profile for the selected Groq model"""
     groq_model: str = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
     """Groq model to use"""
     groq_model_reasoning_effort: str = os.environ.get("GROQ_MODEL_REASONING_EFFORT", "low")
     """Groq model reasoning effort"""
     groq_model_stream: bool = os.environ.get("GROQ_MODEL_STREAM", False)
     """Must remain false because this client consumes complete responses"""
-    groq_model_include_reasoning: bool = os.environ.get("GROQ_MODEL_INCLUDE_REASONING", False)
-    """Must remain false because reasoning content is not consumed"""
-    groq_model_response_format: str = os.environ.get("GROQ_MODEL_RESPONSE_FORMAT", "json_schema")
-    """Response contract selected by the active model profile"""
     groq_model_temperature: float = os.environ.get("GROQ_MODEL_TEMPERATURE", 0.6)
     """Groq model temperature"""
     groq_model_max_completion_tokens: int = os.environ.get("GROQ_MODEL_MAX_COMPLETION_TOKENS", 4096)
@@ -96,8 +56,6 @@ class Settings(BaseSettings):
     """Provider request timeout"""
     groq_validate_model_on_startup: bool = os.environ.get("GROQ_VALIDATE_MODEL_ON_STARTUP", True)
     """Verify that the configured model is available before accepting traffic"""
-    groq_deployment_stage: str = os.environ.get("GROQ_DEPLOYMENT_STAGE", "production")
-    """Deployment label exposed in model metrics"""
 
     # CORS Settings
     cors_allow_origins: str | None = os.environ.get("CORS_ALLOW_ORIGINS", "http://localhost:3000")
@@ -120,38 +78,17 @@ class Settings(BaseSettings):
     """Maximum attempts to fetch enough available suggestions"""
 
     @model_validator(mode="after")
-    def validate_groq_model_profile(self) -> "Settings":
-        profile = GROQ_MODEL_PROFILES.get(self.groq_model_profile)
-        if profile is None:
-            supported = ", ".join(sorted(GROQ_MODEL_PROFILES))
-            raise ValueError(f"Unknown GROQ_MODEL_PROFILE. Expected one of: {supported}")
+    def validate_groq_model_config(self) -> "Settings":
+        if self.groq_model != "openai/gpt-oss-20b":
+            raise ValueError("GROQ_MODEL must be openai/gpt-oss-20b")
 
-        if self.groq_model != profile.model:
+        if self.groq_model_reasoning_effort not in {"low", "medium", "high"}:
             raise ValueError(
-                f"GROQ_MODEL_PROFILE={self.groq_model_profile} requires "
-                f"GROQ_MODEL={profile.model}"
-            )
-
-        if self.groq_model_reasoning_effort not in profile.reasoning_efforts:
-            allowed = ", ".join(sorted(profile.reasoning_efforts))
-            raise ValueError(
-                f"GROQ_MODEL_REASONING_EFFORT for {self.groq_model_profile} "
-                f"must be one of: {allowed}"
-            )
-
-        if self.groq_model_response_format != profile.response_format:
-            raise ValueError(
-                f"GROQ_MODEL_PROFILE={self.groq_model_profile} requires "
-                f"GROQ_MODEL_RESPONSE_FORMAT={profile.response_format}"
+                "GROQ_MODEL_REASONING_EFFORT must be one of: high, low, medium"
             )
 
         if self.groq_model_stream:
             raise ValueError("GROQ_MODEL_STREAM must be false; streaming completions are not consumed")
-
-        if self.groq_model_include_reasoning:
-            raise ValueError(
-                "GROQ_MODEL_INCLUDE_REASONING must be false; reasoning content is not consumed"
-            )
 
         if not 0 <= self.groq_model_temperature <= 2:
             raise ValueError("GROQ_MODEL_TEMPERATURE must be between 0 and 2")
@@ -162,10 +99,6 @@ class Settings(BaseSettings):
         if self.groq_model_request_timeout_seconds <= 0:
             raise ValueError("GROQ_MODEL_REQUEST_TIMEOUT_SECONDS must be positive")
         return self
-
-    @property
-    def groq_profile(self) -> GroqModelProfile:
-        return GROQ_MODEL_PROFILES[self.groq_model_profile]
 
     @computed_field(return_type=str)
     def database_url(self) -> str:
