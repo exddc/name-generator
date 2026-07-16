@@ -1,11 +1,19 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
-from tortoise.functions import Sum, Avg
+from tortoise import connections
+from tortoise.expressions import Q
+from tortoise.functions import Sum, Avg, Count
 from tortoise.queryset import QuerySet
 import numpy as np
 
-from api.models.db_models import SuggestionMetrics, Suggestion, Domain, WorkerMetrics, QueueSnapshot
+from api.models.db_models import (
+    SuggestionMetrics,
+    Suggestion,
+    Domain,
+    WorkerMetrics,
+    QueueSnapshot,
+)
 from api.security import require_scope
 from api.models.api_models import (
     MetricsResponse, 
@@ -15,11 +23,46 @@ from api.models.api_models import (
     MetricsSummaryResponse,
     MetricsHistoryResponse,
     MetricsQueueResponse,
-    MetricsWorkerResponse
+    MetricsWorkerResponse,
+    ModelMetrics,
 )
 from api.routes.domain import queue
 
 router = APIRouter(dependencies=[Depends(require_scope("metrics:read"))])
+PERCENTILE_SAMPLE_LIMIT = 100_000
+
+
+async def _get_bounded_p99_latency(cutoff_date: Optional[datetime]) -> float:
+    """Compute p99 in PostgreSQL over the newest bounded, indexed sample."""
+    connection = connections.get("default")
+    if cutoff_date is None:
+        sql = """
+            SELECT COALESCE(percentile_cont(0.99) WITHIN GROUP
+                (ORDER BY total_duration_ms), 0) AS p99_latency
+            FROM (
+                SELECT total_duration_ms
+                FROM suggestion_metrics
+                WHERE total_duration_ms IS NOT NULL
+                ORDER BY created_at DESC
+                LIMIT $1
+            ) AS bounded_metrics
+        """
+        values = [PERCENTILE_SAMPLE_LIMIT]
+    else:
+        sql = """
+            SELECT COALESCE(percentile_cont(0.99) WITHIN GROUP
+                (ORDER BY total_duration_ms), 0) AS p99_latency
+            FROM (
+                SELECT total_duration_ms
+                FROM suggestion_metrics
+                WHERE total_duration_ms IS NOT NULL AND created_at >= $1
+                ORDER BY created_at DESC
+                LIMIT $2
+            ) AS bounded_metrics
+        """
+        values = [cutoff_date, PERCENTILE_SAMPLE_LIMIT]
+    rows = await connection.execute_query_dict(sql, values)
+    return float(rows[0]["p99_latency"]) if rows else 0.0
 
 async def _get_summary_metrics(cutoff_date: Optional[datetime] = None) -> MetricsSummaryResponse:
     query = SuggestionMetrics.all()
@@ -42,7 +85,16 @@ async def _get_summary_metrics(cutoff_date: Optional[datetime] = None) -> Metric
         avg_tokens=Avg("llm_tokens_total"),
         total_errors=Sum("error_count"),
         avg_retries=Avg("retry_count"),
-        avg_queue_depth=Avg("queue_depth_at_start")
+        avg_queue_depth=Avg("queue_depth_at_start"),
+        avg_creative_latency=Avg(
+            "creative_path_duration_ms", _filter=Q(generation_path="lexicon")
+        ),
+        creative_request_count=Count(
+            "id", _filter=Q(generation_path="lexicon")
+        ),
+        creative_fallback_count=Count(
+            "id", _filter=Q(generation_path="lexicon", fallback_used=True)
+        ),
     ).values(
         "avg_success_rate", 
         "avg_latency", 
@@ -54,7 +106,10 @@ async def _get_summary_metrics(cutoff_date: Optional[datetime] = None) -> Metric
         "avg_tokens",
         "total_errors",
         "avg_retries",
-        "avg_queue_depth"
+        "avg_queue_depth",
+        "avg_creative_latency",
+        "creative_request_count",
+        "creative_fallback_count",
     )
     
     metrics_agg = metrics_data[0] if metrics_data else {}
@@ -70,6 +125,56 @@ async def _get_summary_metrics(cutoff_date: Optional[datetime] = None) -> Metric
     avg_tokens_per_request = metrics_agg.get("avg_tokens") or 0
     total_errors = metrics_agg.get("total_errors") or 0
     avg_retries = metrics_agg.get("avg_retries") or 0
+
+    routing_sql = """
+        SELECT
+            actual_model,
+            COUNT(*) AS request_count,
+            AVG(latency_ms)::DOUBLE PRECISION AS avg_latency,
+            COALESCE(SUM(cost_usd), 0) AS total_cost,
+            COUNT(*) FILTER (WHERE fallback_used) AS fallback_count,
+            COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+            COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+            COALESCE(SUM(total_tokens), 0) AS total_tokens
+        FROM llm_generation_metrics
+    """
+    routing_values: list[object] = []
+    if cutoff_date:
+        routing_sql += " WHERE created_at >= $1"
+        routing_values.append(cutoff_date)
+    routing_sql += " GROUP BY actual_model ORDER BY actual_model"
+    routing_rows = await connections.get("default").execute_query_dict(
+        routing_sql, routing_values
+    )
+
+    model_breakdown = [
+        ModelMetrics(
+            actual_model=row["actual_model"],
+            request_count=int(row["request_count"] or 0),
+            avg_latency_ms=float(row["avg_latency"] or 0),
+            avg_llm_latency_ms=float(row["avg_latency"] or 0),
+            total_cost_usd=round(float(row["total_cost"] or 0), 8),
+            fallback_count=int(row["fallback_count"] or 0),
+            prompt_tokens=int(row["prompt_tokens"] or 0),
+            completion_tokens=int(row["completion_tokens"] or 0),
+            total_tokens=int(row["total_tokens"] or 0),
+        )
+        for row in routing_rows
+    ]
+    total_llm_cost_usd = sum(float(row["total_cost"] or 0) for row in routing_rows)
+    routed_request_rows = await connections.get("default").execute_query_dict(
+        "SELECT COUNT(DISTINCT suggestion_id) AS request_count "
+        "FROM llm_generation_metrics"
+        + (" WHERE created_at >= $1" if cutoff_date else ""),
+        [cutoff_date] if cutoff_date else [],
+    )
+    routed_request_count = int(routed_request_rows[0]["request_count"] or 0)
+    avg_llm_cost_usd = (
+        total_llm_cost_usd / routed_request_count if routed_request_count else 0.0
+    )
+    avg_creative_latency_ms = float(metrics_agg.get("avg_creative_latency") or 0)
+    creative_request_count = int(metrics_agg.get("creative_request_count") or 0)
+    creative_fallback_count = int(metrics_agg.get("creative_fallback_count") or 0)
     
     total_returned_data = await query.annotate(total=Sum("domains_returned")).values("total")
     total_returned = total_returned_data[0]["total"] if total_returned_data and total_returned_data[0]["total"] else 0
@@ -79,11 +184,7 @@ async def _get_summary_metrics(cutoff_date: Optional[datetime] = None) -> Metric
     else:
         cache_hit_rate = 0.0
 
-    all_latencies_objs = await query.filter(total_duration_ms__isnull=False).values_list("total_duration_ms", flat=True)
-    if all_latencies_objs:
-        p99_latency = float(np.percentile(all_latencies_objs, 99))
-    else:
-        p99_latency = 0.0
+    p99_latency = await _get_bounded_p99_latency(cutoff_date)
 
     if total_suggestions > 0:
         domains_per_suggestion = total_generated_domains / total_suggestions
@@ -110,6 +211,12 @@ async def _get_summary_metrics(cutoff_date: Optional[datetime] = None) -> Metric
         available_per_suggestion=available_per_suggestion,
         unknown_domain_rate=unknown_domain_rate,
         avg_tokens_per_request=avg_tokens_per_request,
+        total_llm_cost_usd=round(total_llm_cost_usd, 8),
+        avg_llm_cost_usd=round(avg_llm_cost_usd, 8),
+        avg_creative_latency_ms=avg_creative_latency_ms,
+        creative_request_count=creative_request_count,
+        creative_fallback_count=creative_fallback_count,
+        model_breakdown=model_breakdown,
         total_errors=total_errors,
         avg_retry_count=avg_retries,
         cache_hit_rate=cache_hit_rate
@@ -354,6 +461,12 @@ async def get_metrics():
         available_per_suggestion=summary.available_per_suggestion,
         unknown_domain_rate=summary.unknown_domain_rate,
         avg_tokens_per_request=summary.avg_tokens_per_request,
+        total_llm_cost_usd=summary.total_llm_cost_usd,
+        avg_llm_cost_usd=summary.avg_llm_cost_usd,
+        avg_creative_latency_ms=summary.avg_creative_latency_ms,
+        creative_request_count=summary.creative_request_count,
+        creative_fallback_count=summary.creative_fallback_count,
+        model_breakdown=summary.model_breakdown,
         total_errors=summary.total_errors,
         avg_retry_count=summary.avg_retry_count,
         cache_hit_rate=summary.cache_hit_rate,

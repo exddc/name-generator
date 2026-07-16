@@ -34,7 +34,7 @@ from api.exceptions import (
     ServiceUnavailableError,
     create_error_response,
 )
-from api.suggestor.groq import GroqSuggestor
+from api.suggestor.groq import GroqSuggestor, select_model_profile
 from api.suggestor.prompts import PromptType, UserPreferences, SimilarContext
 from api.suggestor.tlds import POPULAR_TLDS
 from api.utils import (
@@ -357,7 +357,7 @@ async def get_domain_variants(
     """
     Check a domain against a list of TLDs, iterating until enough available domains are found.
     """
-    metrics = MetricsTracker()
+    metrics = MetricsTracker(generation_path="variants")
     try:
         metrics.set_queue_depth(len(queue))
     except Exception:
@@ -443,7 +443,7 @@ async def get_domain_variants_stream(
     _: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> StreamingResponse:
     """Stream domain variant checks as they are processed."""
-    metrics = MetricsTracker()
+    metrics = MetricsTracker(generation_path="variants")
 
     async def event_generator():
         accumulated: list[DomainSuggestion] = []
@@ -554,7 +554,8 @@ async def suggest(
     requested_count = request.count or RequestDomainSuggestion.model_fields["count"].default
     retries = 0
     max_retries = max(1, settings.max_suggestions_retries)
-    metrics = MetricsTracker()
+    prompt_type = PromptType.LEXICON if request.creative else PromptType.LEGACY
+    metrics = MetricsTracker(generation_path=prompt_type.value)
     try:
         metrics.set_queue_depth(len(queue))
     except Exception:
@@ -564,13 +565,24 @@ async def suggest(
     accumulated_lookup: dict[str, DomainSuggestion] = {}
     available_count = 0
     domains_to_store: list[tuple[str, DomainStatus]] = []
-    prompt_type = PromptType.LEXICON if request.creative else PromptType.LEGACY
+    suggestor = GroqSuggestor()
 
     while retries < max_retries:
         metrics.start_timer("llm")
         metrics.increment_llm_call()
         try:
-            suggestions = await GroqSuggestor().generate(request.description, requested_count, prompt_type)
+            generation = await suggestor.generate(
+                request.description, requested_count, prompt_type
+            )
+            suggestions = generation.candidates
+            metrics.record_llm_generation(
+                requested_model=generation.requested_model,
+                actual_model=generation.model,
+                usage=generation.usage,
+                cost_usd=generation.cost_usd,
+                latency_ms=generation.latency_ms,
+                fallback_used=generation.fallback_used,
+            )
         except Exception as e:
             metrics.add_error(f"LLM error: {str(e)}")
             raise
@@ -640,7 +652,7 @@ async def suggest(
         store_suggestion_batch,
         request.description,
         requested_count,
-        settings.groq_model,
+        metrics.actual_model or select_model_profile(prompt_type).model,
         prompt_type.value,
         domains_to_store,
         metrics,
@@ -693,12 +705,16 @@ async def suggest_stream(
             prompt_type = PromptType.LEXICON
         else:
             prompt_type = PromptType.LEGACY
+
+        metrics.generation_path = prompt_type.value
+        selected_profile = select_model_profile(prompt_type)
+        suggestor = GroqSuggestor()
         
         try:
             suggestion_db = await SuggestionDB.create(
                 description=request.description,
                 count=requested_count,
-                model=settings.groq_model,
+                model=selected_profile.model,
                 prompt=prompt_type.value,
                 user_id=request.user_id,
             )
@@ -717,6 +733,7 @@ async def suggest_stream(
             {
                 "requested_count": requested_count,
                 "max_retries": max_retries,
+                "requested_model": selected_profile.model,
             },
         )
         
@@ -725,12 +742,24 @@ async def suggest_stream(
                 metrics.start_timer("llm")
                 metrics.increment_llm_call()
                 try:
-                    suggestions = await GroqSuggestor().generate(
+                    generation = await suggestor.generate(
                         request.description,
                         requested_count,
                         prompt_type,
                         preferences=user_preferences,
                     )
+                    suggestions = generation.candidates
+                    metrics.record_llm_generation(
+                        requested_model=generation.requested_model,
+                        actual_model=generation.model,
+                        usage=generation.usage,
+                        cost_usd=generation.cost_usd,
+                        latency_ms=generation.latency_ms,
+                        fallback_used=generation.fallback_used,
+                    )
+                    if suggestion_db.model != generation.model:
+                        suggestion_db.model = generation.model
+                        await suggestion_db.save(update_fields=["model"])
                 except DomainGeneratorException as e:
                     metrics.add_error(f"LLM error: {str(e)}")
                     metrics.stop_timer("llm")
@@ -898,6 +927,11 @@ async def suggest_stream(
                 await asyncio.sleep(0)
 
             
+            effective_model = metrics.actual_model or selected_profile.model
+            if suggestion_db.model != effective_model:
+                suggestion_db.model = effective_model
+                await suggestion_db.save(update_fields=["model"])
+
             asyncio.create_task(
                 metrics.save(suggestion_db.id, requested_count)
             )
@@ -908,6 +942,8 @@ async def suggest_stream(
                     "suggestions": [item.model_dump(mode="json") for item in accumulated],
                     "available_count": available_count,
                     "total": len(accumulated),
+                    "model": metrics.actual_model or selected_profile.model,
+                    "fallback_used": metrics.fallback_used,
                 },
             )
             
@@ -951,12 +987,15 @@ async def suggest_similar_stream(
         domains_to_store: list[tuple[str, DomainStatus]] = []
         first_suggestion_sent = False
         prompt_type = PromptType.SIMILAR
+        metrics.generation_path = prompt_type.value
+        selected_profile = select_model_profile(prompt_type)
+        suggestor = GroqSuggestor()
         
         try:
             suggestion_db = await SuggestionDB.create(
                 description=f"Similar to {request.source_domain}",
                 count=requested_count,
-                model=settings.groq_model,
+                model=selected_profile.model,
                 prompt=prompt_type.value,
                 user_id=request.user_id,
             )
@@ -976,6 +1015,7 @@ async def suggest_similar_stream(
                 "requested_count": requested_count,
                 "max_retries": max_retries,
                 "source_domain": request.source_domain,
+                "requested_model": selected_profile.model,
             },
         )
         
@@ -984,12 +1024,24 @@ async def suggest_similar_stream(
                 metrics.start_timer("llm")
                 metrics.increment_llm_call()
                 try:
-                    suggestions = await GroqSuggestor().generate(
+                    generation = await suggestor.generate(
                         domain_name,
                         requested_count,
                         prompt_type,
                         similar_context=similar_context,
                     )
+                    suggestions = generation.candidates
+                    metrics.record_llm_generation(
+                        requested_model=generation.requested_model,
+                        actual_model=generation.model,
+                        usage=generation.usage,
+                        cost_usd=generation.cost_usd,
+                        latency_ms=generation.latency_ms,
+                        fallback_used=generation.fallback_used,
+                    )
+                    if suggestion_db.model != generation.model:
+                        suggestion_db.model = generation.model
+                        await suggestion_db.save(update_fields=["model"])
                 except DomainGeneratorException as e:
                     metrics.add_error(f"LLM error: {str(e)}")
                     metrics.stop_timer("llm")
@@ -1150,6 +1202,11 @@ async def suggest_similar_stream(
                 await asyncio.sleep(0)
 
             
+            effective_model = metrics.actual_model or selected_profile.model
+            if suggestion_db.model != effective_model:
+                suggestion_db.model = effective_model
+                await suggestion_db.save(update_fields=["model"])
+
             asyncio.create_task(
                 metrics.save(suggestion_db.id, requested_count)
             )
@@ -1161,6 +1218,8 @@ async def suggest_similar_stream(
                     "available_count": available_count,
                     "total": len(accumulated),
                     "source_domain": request.source_domain,
+                    "model": metrics.actual_model or selected_profile.model,
+                    "fallback_used": metrics.fallback_used,
                 },
             )
             

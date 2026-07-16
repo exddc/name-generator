@@ -124,6 +124,18 @@ export type QueueDepthPoint = {
     depth: number;
 }
 
+export type ModelMetrics = {
+    actual_model: string;
+    request_count: number;
+    avg_latency_ms: number;
+    avg_llm_latency_ms: number;
+    total_cost_usd: number;
+    fallback_count: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+}
+
 export type MetricsResponse = {
     total_suggestions: number;
     total_domains: number;
@@ -143,6 +155,12 @@ export type MetricsResponse = {
     
     // Resource stats
     avg_tokens_per_request: number;
+    total_llm_cost_usd: number;
+    avg_llm_cost_usd: number;
+    avg_creative_latency_ms: number;
+    creative_request_count: number;
+    creative_fallback_count: number;
+    model_breakdown: ModelMetrics[];
     total_errors: number;
     
     // Reliability stats
@@ -170,6 +188,12 @@ export type MetricsSummaryResponse = {
     available_per_suggestion: number;
     unknown_domain_rate: number;
     avg_tokens_per_request: number;
+    total_llm_cost_usd: number;
+    avg_llm_cost_usd: number;
+    avg_creative_latency_ms: number;
+    creative_request_count: number;
+    creative_fallback_count: number;
+    model_breakdown: ModelMetrics[];
     total_errors: number;
     avg_retry_count: number;
     cache_hit_rate: number;

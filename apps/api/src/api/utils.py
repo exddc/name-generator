@@ -2,16 +2,31 @@
 
 import datetime
 import time
+from dataclasses import dataclass
 from typing import Optional
 import tldextract
+from tortoise.transactions import in_transaction
 
 from api.models.api_models import DomainStatus
 from api.models.db_models import (
     Domain as DomainDB, 
     Suggestion as SuggestionDB,
     SuggestionMetrics,
+    LlmGenerationMetric,
     Rating as RatingDB,
 )
+
+
+@dataclass(frozen=True)
+class LlmCallMeasurement:
+    requested_model: str
+    actual_model: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cost_usd: float
+    latency_ms: int
+    fallback_used: bool
 
 
 class MetricsTracker:
@@ -31,8 +46,9 @@ class MetricsTracker:
         await tracker.save(suggestion_id)
     """
     
-    def __init__(self):
+    def __init__(self, generation_path: str | None = None):
         self.request_start = time.time()
+        self.generation_path = generation_path
         
         # Timers
         self._timers: dict[str, float] = {}
@@ -62,6 +78,8 @@ class MetricsTracker:
         self.llm_tokens_total = 0
         self.llm_tokens_prompt = 0
         self.llm_tokens_completion = 0
+        self.llm_cost_usd = 0.0
+        self.llm_generations: list[LlmCallMeasurement] = []
         
         # Error tracking
         self.errors: list[str] = []
@@ -117,6 +135,58 @@ class MetricsTracker:
         self.llm_tokens_total += total
         self.llm_tokens_prompt += prompt
         self.llm_tokens_completion += completion
+
+    def record_llm_generation(
+        self,
+        *,
+        requested_model: str,
+        actual_model: str,
+        usage: dict[str, int],
+        cost_usd: float,
+        latency_ms: int,
+        fallback_used: bool,
+    ) -> None:
+        """Record one completed generation without losing per-model attribution."""
+        self.llm_generations.append(
+            LlmCallMeasurement(
+                requested_model=requested_model,
+                actual_model=actual_model,
+                prompt_tokens=usage.get("prompt_tokens", 0),
+                completion_tokens=usage.get("completion_tokens", 0),
+                total_tokens=usage.get("total_tokens", 0),
+                cost_usd=cost_usd,
+                latency_ms=latency_ms,
+                fallback_used=fallback_used,
+            )
+        )
+        self.llm_cost_usd += cost_usd
+        self.add_llm_tokens(
+            total=usage.get("total_tokens", 0),
+            prompt=usage.get("prompt_tokens", 0),
+            completion=usage.get("completion_tokens", 0),
+        )
+
+    @staticmethod
+    def _single_or_mixed(values: set[str]) -> str | None:
+        if not values:
+            return None
+        return next(iter(values)) if len(values) == 1 else "mixed"
+
+    @property
+    def requested_model(self) -> str | None:
+        return self._single_or_mixed(
+            {generation.requested_model for generation in self.llm_generations}
+        )
+
+    @property
+    def actual_model(self) -> str | None:
+        return self._single_or_mixed(
+            {generation.actual_model for generation in self.llm_generations}
+        )
+
+    @property
+    def fallback_used(self) -> bool:
+        return any(generation.fallback_used for generation in self.llm_generations)
     
     def add_error(self, error: str) -> None:
         """Record an error."""
@@ -142,7 +212,7 @@ class MetricsTracker:
         available_count = self.domains_by_status[DomainStatus.AVAILABLE]
         success_rate = available_count / requested_count if requested_count > 0 else 0.0
         
-        metrics = await SuggestionMetrics.create(
+        metric_values = dict(
             suggestion_id=suggestion_id,
             # Timing
             total_duration_ms=self.get_total_duration_ms(),
@@ -169,12 +239,47 @@ class MetricsTracker:
             llm_tokens_total=self.llm_tokens_total if self.llm_tokens_total > 0 else None,
             llm_tokens_prompt=self.llm_tokens_prompt if self.llm_tokens_prompt > 0 else None,
             llm_tokens_completion=self.llm_tokens_completion if self.llm_tokens_completion > 0 else None,
+            llm_cost_usd=self.llm_cost_usd if self.llm_cost_usd > 0 else None,
+            generation_path=self.generation_path,
+            requested_model=self.requested_model,
+            actual_model=self.actual_model,
+            fallback_used=self.fallback_used,
+            creative_path_duration_ms=(
+                int(sum(self._durations["llm"]))
+                if self.generation_path == "lexicon" and self._durations["llm"]
+                else None
+            ),
             # Errors
             error_count=len(self.errors),
             error_messages=self.errors if self.errors else None,
             # System metrics
             queue_depth_at_start=self.queue_depth_at_start,
         )
+
+        generation_rows = [
+            LlmGenerationMetric(
+                suggestion_id=suggestion_id,
+                generation_path=self.generation_path or "unknown",
+                requested_model=generation.requested_model,
+                actual_model=generation.actual_model,
+                prompt_tokens=generation.prompt_tokens,
+                completion_tokens=generation.completion_tokens,
+                total_tokens=generation.total_tokens,
+                cost_usd=generation.cost_usd,
+                latency_ms=generation.latency_ms,
+                fallback_used=generation.fallback_used,
+            )
+            for generation in self.llm_generations
+        ]
+
+        async with in_transaction() as connection:
+            metrics = await SuggestionMetrics.create(
+                using_db=connection, **metric_values
+            )
+            if generation_rows:
+                await LlmGenerationMetric.bulk_create(
+                    generation_rows, using_db=connection
+                )
         
         return metrics
 

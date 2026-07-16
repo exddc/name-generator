@@ -165,6 +165,18 @@ class QueueDepthPoint(BaseModel):
     timestamp: datetime.datetime
     depth: int
 
+
+class ModelMetrics(BaseModel):
+    actual_model: str
+    request_count: int
+    avg_latency_ms: float
+    avg_llm_latency_ms: float
+    total_cost_usd: float
+    fallback_count: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
 class MetricsResponse(BaseModel):
     total_suggestions: int
     total_domains: int
@@ -184,6 +196,12 @@ class MetricsResponse(BaseModel):
     
     # Resource stats
     avg_tokens_per_request: float
+    total_llm_cost_usd: float
+    avg_llm_cost_usd: float
+    avg_creative_latency_ms: float
+    creative_request_count: int
+    creative_fallback_count: int
+    model_breakdown: List[ModelMetrics]
     total_errors: int
     
     # Reliability stats
@@ -211,6 +229,12 @@ class MetricsSummaryResponse(BaseModel):
     available_per_suggestion: float
     unknown_domain_rate: float
     avg_tokens_per_request: float
+    total_llm_cost_usd: float
+    avg_llm_cost_usd: float
+    avg_creative_latency_ms: float
+    creative_request_count: int
+    creative_fallback_count: int
+    model_breakdown: List[ModelMetrics]
     total_errors: int
     avg_retry_count: float
     cache_hit_rate: float
