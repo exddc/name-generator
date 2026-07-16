@@ -228,7 +228,7 @@ export const TweetMedia = ({ tweet }: { tweet: EnrichedTweet }) => (
 
 export const MagicTweet = ({
     tweet,
-    components, // eslint-disable-line @typescript-eslint/no-unused-vars
+    components,
     className,
     ...props
 }: {
@@ -236,7 +236,28 @@ export const MagicTweet = ({
     components?: TwitterComponents;
     className?: string;
 }) => {
-    const enrichedTweet = enrichTweet(tweet);
+    // react-tweet's enrichTweet iterates tweet.entities.{hashtags,user_mentions,urls,symbols}
+    // without guarding them. Some tweets come back from the syndication API with one of those
+    // arrays missing, which throws "x is not iterable" during client-side render. With no error
+    // boundary that blanks the entire page, so normalize the entities first and fall back to the
+    // not-found card if enrichment still fails.
+    let enrichedTweet: EnrichedTweet;
+    try {
+        const safeTweet: Tweet = {
+            ...tweet,
+            entities: {
+                ...tweet.entities,
+                hashtags: tweet.entities?.hashtags ?? [],
+                urls: tweet.entities?.urls ?? [],
+                user_mentions: tweet.entities?.user_mentions ?? [],
+                symbols: tweet.entities?.symbols ?? [],
+            },
+        };
+        enrichedTweet = enrichTweet(safeTweet);
+    } catch {
+        const NotFound = components?.TweetNotFound || TweetNotFound;
+        return <NotFound {...props} />;
+    }
     return (
         <div
             className={cn(

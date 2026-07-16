@@ -31,11 +31,11 @@ export const metadata: Metadata = {
         title: 'Domain Generator',
         description:
             'Generate domain names for you business, app, or project that are guaranteed available to register',
-        url: 'https://domain-generator.timoweiss.me',
+        url: 'https://name-generator.timoweiss.me',
         type: 'website',
         images: [
             {
-                url: 'https://domain-generator.timoweiss.me/og-image.jpg',
+                url: 'https://name-generator.timoweiss.me/og-image.jpg',
                 width: 1200,
                 height: 630,
                 alt: 'Domain Generator',
@@ -46,7 +46,7 @@ export const metadata: Metadata = {
         title: 'Domain Generator',
         description:
             'Generate domain names for you business, app, or project that are guaranteed available to register',
-        images: ['https://domain-generator.timoweiss.me/og-image.jpg'],
+        images: ['https://name-generator.timoweiss.me/og-image.jpg'],
         card: 'summary_large_image',
         creator: '@timooweiss',
     },
