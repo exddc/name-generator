@@ -3,6 +3,7 @@ from starlette.responses import JSONResponse
 from tortoise import connections
 
 from api.config import get_settings
+from api.suggestor.groq import model_availability
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -16,7 +17,28 @@ async def _check_database_connection() -> None:
 @router.get("/")
 async def health_check():
     status_code = 200
-    payload = {"status": "ok", "dependencies": {"database": "ok"}}
+    settings = get_settings()
+    default_status = model_availability.get(settings.groq_model)
+    creative_status = model_availability.get(settings.groq_creative_model)
+    payload = {
+        "status": "ok",
+        "dependencies": {
+            "database": "ok",
+            "groq_default": (
+                "ok" if default_status and default_status.available else "unknown"
+            ),
+            "groq_creative": (
+                "ok"
+                if creative_status and creative_status.available
+                else "unavailable"
+                if creative_status
+                else "unknown"
+            ),
+        },
+    }
+
+    if creative_status is not None and not creative_status.available:
+        payload["status"] = "degraded"
 
     try:
         await _check_database_connection()

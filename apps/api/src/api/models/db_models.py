@@ -47,6 +47,14 @@ class SuggestionMetrics(Model):
     llm_tokens_total = fields.IntField(null=True)
     llm_tokens_prompt = fields.IntField(null=True)
     llm_tokens_completion = fields.IntField(null=True)
+    llm_cost_usd = fields.DecimalField(max_digits=12, decimal_places=8, null=True)
+
+    # Request-scoped routing and fallback observability
+    generation_path = fields.CharField(max_length=32, null=True)
+    requested_model = fields.CharField(max_length=128, null=True)
+    actual_model = fields.CharField(max_length=128, null=True)
+    fallback_used = fields.BooleanField(default=False)
+    creative_path_duration_ms = fields.IntField(null=True)
     
     # Error tracking
     error_count = fields.IntField(default=0)
@@ -67,6 +75,34 @@ class SuggestionMetrics(Model):
         ]
 
 
+class LlmGenerationMetric(Model):
+    """One successful LLM generation call, attributed to its effective model."""
+
+    id = fields.IntField(pk=True)
+    suggestion: fields.ForeignKeyRelation["Suggestion"] = fields.ForeignKeyField(
+        "models.Suggestion", related_name="llm_generations", on_delete=fields.CASCADE
+    )
+    generation_path = fields.CharField(max_length=32)
+    requested_model = fields.CharField(max_length=128)
+    actual_model = fields.CharField(max_length=128)
+    prompt_tokens = fields.IntField(default=0)
+    completion_tokens = fields.IntField(default=0)
+    total_tokens = fields.IntField(default=0)
+    cost_usd = fields.DecimalField(max_digits=12, decimal_places=8, default=0)
+    latency_ms = fields.IntField()
+    fallback_used = fields.BooleanField(default=False)
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "llm_generation_metrics"
+        indexes = [
+            ("suggestion_id",),
+            ("created_at",),
+            ("actual_model", "created_at"),
+            ("generation_path", "created_at"),
+        ]
+
+
 class Suggestion(Model):
     id = fields.IntField(pk=True)
     description = fields.CharField(max_length=1024)
@@ -83,6 +119,7 @@ class Suggestion(Model):
     domains: fields.ReverseRelation["Domain"]
     ratings: fields.ReverseRelation["Rating"]
     metrics: fields.ReverseRelation["SuggestionMetrics"]
+    llm_generations: fields.ReverseRelation["LlmGenerationMetric"]
 
     class Meta:
         table = "suggestions"

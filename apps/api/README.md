@@ -59,16 +59,33 @@ This service uses **Aerich** for schema management with TortoiseORM. All migrati
    # or: poetry run aerich upgrade
    ```
 
+**Deployment ordering:** the Compose `migrate` one-shot service runs `aerich
+upgrade` after PostgreSQL is healthy. API replicas depend on that service
+completing successfully, so they cannot accept traffic against an older schema.
+The migrations use Aerich's version table and idempotent DDL, making a repeated
+deployment safe.
+
+**Rollback ordering:** first deploy API code that remains compatible with the
+current schema, then stop all API replicas that read or write the fields being
+removed, run `aerich downgrade`, and only then deploy older application code.
+Never downgrade the database while TW-266 API replicas are serving traffic.
+
 ### API Documentation
 
 API documentation is available at http://localhost:8000/docs.
 
 ## Groq model
 
-The production model is `openai/gpt-oss-20b`. Configuration validation rejects
-a different model, unsupported reasoning values, and streaming. Startup also
-checks that Groq can retrieve the exact configured model before the API accepts
-traffic.
+The default model is `openai/gpt-oss-20b`; creative generation uses
+`openai/gpt-oss-120b`. Configuration validation rejects different models,
+unsupported reasoning values, and streaming. Startup checks both models. A
+default-model validation failure remains fatal, while a 120B timeout or
+permission failure marks only creative generation unavailable. Health reports
+that degraded capability and creative requests return a scoped 503 (or use the
+explicitly configured 20B fallback); unrelated routes and 20B generation remain
+available. After `GROQ_CREATIVE_REVALIDATION_SECONDS`, one request probes 120B;
+a successful probe restores creative generation and healthy status without a
+process restart.
 
 Effective non-secret model configuration is logged during startup. Prompts and
 credentials are never included in these operational events.
