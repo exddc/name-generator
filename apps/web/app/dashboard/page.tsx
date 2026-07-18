@@ -68,7 +68,6 @@ const COLORS = {
 export default function Dashboard() {
     const { data: session, isPending } = useSession();
     const router = useRouter();
-    const [isCheckingAccess, setIsCheckingAccess] = useState(true);
     const [timeRange, setTimeRange] = useState<'1h' | '24h' | 'all'>('1h');
     const [summary24h, setSummary24h] = useState<MetricsSummaryResponse | null>(
         null
@@ -125,14 +124,11 @@ export default function Dashboard() {
             return;
         }
 
-        if (session?.user) {
-            setIsCheckingAccess(false);
-        }
     }, [session, isPending, router]);
 
     // Fetch Functions
     useEffect(() => {
-        if (!isCheckingAccess && session?.user) {
+        if (!isPending && session?.user) {
             const fetchAll = () => {
                 setError(null);
                 // Summary
@@ -195,9 +191,9 @@ export default function Dashboard() {
 
             fetchAll();
         }
-    }, [isCheckingAccess, session, timeRange]);
+    }, [fetchJson, isPending, session, timeRange]);
 
-    if (isPending || isCheckingAccess) {
+    if (isPending || !session?.user) {
         return (
             <div className="flex flex-col items-center justify-center min-h-[80vh]">
                 <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -1075,7 +1071,8 @@ function StatsCard({
         >
             <Card
                 className={cn(
-                    'flex-col justify-between h-full hover:scale-[1.02] border-neutral-200'
+                    'flex-col justify-between h-full hover:scale-[1.02] border-neutral-200',
+                    minimal && 'shadow-none'
                 )}
             >
                 <div className="flex items-center gap-2 text-muted-foreground mb-4">
@@ -1233,7 +1230,23 @@ function formatXAxisDate(value: string, range: '1h' | '24h' | 'all') {
     });
 }
 
-function WorkerTooltip({ active, payload, label }: any) {
+type ChartTooltipEntry = {
+    color?: string;
+    dataKey?: string;
+    fill?: string;
+    name?: string;
+    payload?: { jobs?: number };
+    stroke?: string;
+    value: number;
+};
+
+type ChartTooltipProps = {
+    active?: boolean;
+    label?: string | number;
+    payload?: ChartTooltipEntry[];
+};
+
+function WorkerTooltip({ active, payload, label }: ChartTooltipProps) {
     if (active && payload && payload.length) {
         return (
             <div className="bg-popover/95 backdrop-blur-sm border border-border p-3 rounded-lg shadow-lg text-xs">
@@ -1241,7 +1254,7 @@ function WorkerTooltip({ active, payload, label }: any) {
                     Worker {label}
                 </p>
                 <div className="space-y-1">
-                    {payload.map((entry: any, index: number) => (
+                    {payload.map((entry, index) => (
                         <div key={index} className="flex items-center gap-2">
                             <div
                                 className="w-2 h-2 rounded-full"
@@ -1272,7 +1285,7 @@ function WorkerTooltip({ active, payload, label }: any) {
     return null;
 }
 
-function CustomTooltip({ active, payload, label }: any) {
+function CustomTooltip({ active, payload, label }: ChartTooltipProps) {
     if (active && payload && payload.length) {
         let dateLabel = '';
         if (typeof label === 'number') {
@@ -1285,7 +1298,7 @@ function CustomTooltip({ active, payload, label }: any) {
             });
         } else {
             // String date from API
-            const d = new Date(label);
+            const d = new Date(String(label));
             // If valid date, format it
             if (!isNaN(d.getTime())) {
                 dateLabel = d.toLocaleString(undefined, {
@@ -1295,7 +1308,7 @@ function CustomTooltip({ active, payload, label }: any) {
                     minute: '2-digit',
                 });
             } else {
-                dateLabel = label;
+                dateLabel = String(label ?? '');
             }
         }
 
@@ -1305,9 +1318,9 @@ function CustomTooltip({ active, payload, label }: any) {
                     {dateLabel}
                 </p>
                 <div className="space-y-1">
-                    {payload.map((entry: any, index: number) => {
-                        let formattedValue = entry.value;
-                        const name = entry.name || entry.dataKey;
+                    {payload.map((entry, index) => {
+                        let formattedValue: string | number = entry.value;
+                        const name = entry.name || entry.dataKey || 'value';
 
                         if (typeof entry.value === 'number') {
                             if (

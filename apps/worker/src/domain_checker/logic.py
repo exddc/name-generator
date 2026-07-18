@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import re
 import socket
 import subprocess
 from typing import Iterable, List, Sequence
-from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
 
 DNS_TIMEOUT = float(os.getenv("DOMAIN_CHECKER_DNS_TIMEOUT", "3.0"))
+DOMAIN_LABEL_PATTERN = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 
 FREE_KEYWORDS = [
@@ -101,9 +102,20 @@ def check_domain(domain: str) -> str:
 
 
 def normalize_domain(input_string: str) -> str:
-    parsed = urlparse(input_string)
-    domain = parsed.netloc if parsed.netloc else input_string
-    return domain.strip().lower()
+    value = input_string.strip().lower().rstrip(".")
+    if not value or len(value) > 253 or "." not in value:
+        raise ValueError("domain must contain a public suffix")
+    if any(character in value for character in ("/", ":", "@")):
+        raise ValueError("URLs and credentials are not domain names")
+    if any(ord(character) > 127 for character in value):
+        raise ValueError("domain must use ASCII or punycode labels")
+
+    labels = value.split(".")
+    if any(DOMAIN_LABEL_PATTERN.fullmatch(label) is None for label in labels):
+        raise ValueError("domain contains an invalid label")
+    if labels[-1].isdigit():
+        raise ValueError("domain suffix must not be numeric")
+    return value
 
 
 def dns_lookup_with_timeout(domain: str, timeout: float = DNS_TIMEOUT) -> str:
@@ -117,4 +129,3 @@ def dns_lookup_with_timeout(domain: str, timeout: float = DNS_TIMEOUT) -> str:
 
 def contains_any_keyword(text: str, keywords: Iterable[str]) -> bool:
     return any(keyword in text for keyword in keywords)
-

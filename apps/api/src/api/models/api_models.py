@@ -62,7 +62,7 @@ class UserPreferencesInput(BaseModel):
 
 
 class RequestDomainSuggestion(BaseModel):
-    description: str
+    description: str = Field(min_length=1, max_length=1024)
     count: int = Field(default=10, ge=1, le=100)
     user_id: str | None = None
     creative: bool = Field(default=False, description="Use creative/lexicon prompt type instead of legacy")
@@ -72,7 +72,7 @@ class RequestDomainSuggestion(BaseModel):
 
 class RequestSimilarDomains(BaseModel):
     """Request body for generating similar domains to a source domain."""
-    source_domain: str = Field(description="The domain to generate similar names for")
+    source_domain: str = Field(min_length=3, max_length=255, description="The domain to generate similar names for")
     count: int = Field(default=10, ge=1, le=100)
     user_id: str | None = None
 

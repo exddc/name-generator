@@ -80,7 +80,7 @@ export const auth = betterAuth({
             },
         }),
         emailOTP({
-            async sendVerificationOTP({ email, otp, type }) {
+            async sendVerificationOTP({ email, otp }) {
                 console.log(`sendVerificationOTP called for ${email}`);
                 try {
                     if (!resendClient || process.env.NODE_ENV === "development") {

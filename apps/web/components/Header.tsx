@@ -1,7 +1,7 @@
 'use client';
 
 // Libraries
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
@@ -15,14 +15,18 @@ import {
     navigationMenuTriggerStyle,
 } from '@/components/ui/navigation-menu';
 
+const subscribeToHydration = () => () => {};
+
 export default function Header() {
     const [showBorder, setShowBorder] = useState(false);
-    const [mounted, setMounted] = useState(false);
+    const mounted = useSyncExternalStore(
+        subscribeToHydration,
+        () => true,
+        () => false
+    );
     const { data: session } = useSession();
 
     useEffect(() => {
-        setMounted(true);
-
         function handleScroll() {
             if (window.scrollY > 80) {
                 setShowBorder(true);

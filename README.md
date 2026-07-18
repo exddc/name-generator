@@ -19,7 +19,7 @@ Webpage for generating and checking domain names, composed of a Next.js frontend
 ### Prerequisites
 
 - Docker & Docker Compose
-- Bun
+- Node.js 22.23.1 and npm
 - Python 3.12+ & Poetry
 
 ### Environment Setup
@@ -48,6 +48,69 @@ For development instructions, refer to the specific application documentation in
 
 The api endpoints can be tested with the [Bruno](https://github.com/usebruno/bruno) client. The collections are in the `apps/api/collections/` directory.
 
+## Required verification baseline
+
+The commands below are the same gates run for every pull request. They are
+designed to work from a clean checkout with Node.js 22.23.1, Python 3.12.13, Poetry
+1.8.5, and Docker available.
+
+Install dependencies once:
+
+```bash
+cd apps/web && npm ci
+cd ../api && poetry install --no-interaction --no-ansi
+cd ../worker && poetry install --no-interaction --no-ansi
+cd ../..
+```
+
+Run the required fast checks:
+
+```bash
+cd apps/web && npm run lint
+npm run typecheck
+npm run build
+cd ../api && poetry run pytest -q
+cd ../worker && poetry run pytest -q
+```
+
+Run the Postgres and Redis integration checks:
+
+```bash
+docker run --rm -d --name name-generator-test-postgres \
+  -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:18.4-alpine
+docker run --rm -d --name name-generator-test-redis \
+  -p 6379:6379 redis:7.4.9-alpine
+
+cd apps/api
+RUN_POSTGRES_INTEGRATION_TEST=1 RUN_REDIS_INTEGRATION_TEST=1 \
+TEST_DATABASE_ADMIN_URL=postgresql://postgres:password@127.0.0.1:5432/postgres \
+TEST_REDIS_URL=redis://127.0.0.1:6379/15 \
+REDIS_URL=redis://127.0.0.1:6379/15 \
+API_JWT_SECRET=test-only-secret-at-least-32-bytes \
+GROQ_VALIDATE_MODEL_ON_STARTUP=false \
+poetry run pytest -q -m integration
+
+cd ../..
+docker stop name-generator-test-postgres name-generator-test-redis
+```
+
+Run the deterministic mocked browser contract. It verifies anonymous generation
+and authenticated save/rate UI behavior, but deliberately stubs auth, API, and
+provider boundaries; the API integration suite owns those server contracts.
+
+```bash
+cd apps/web
+npx playwright install chromium
+npm run test:e2e:ci
+```
+
+CI uses one bounded runner to avoid duplicated checkouts and dependency installs.
+That runner executes all application and integration tests, audits production
+dependencies, scans the working tree for secrets and high/critical findings,
+and validates Compose plus every Dockerfile without paying to build three full
+images on each pull request. Configure the repository ruleset to require the
+single `CI required` check before merging.
+
 ### Authentication for Bruno
 
 To interact with the protected API endpoints via Bruno:
@@ -72,7 +135,7 @@ To interact with the protected API endpoints via Bruno:
 ## Services
 
 -   **API**: FastAPI application at `http://localhost:8000`
--   **Web App**: Bun application at `http://localhost:3000`
+-   **Web App**: Next.js application at `http://localhost:3000`
 -   **Worker**: Python background worker
 -   **Postgres**: Database service
 -   **Redis**: Queue and caching service

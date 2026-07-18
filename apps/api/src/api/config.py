@@ -149,6 +149,25 @@ class Settings(BaseSettings):
     max_suggestions_retries: int = int(os.environ.get("MAX_SUGGESTIONS_RETRIES", "5"))
     """Maximum attempts to fetch enough available suggestions"""
 
+    generation_quota_window_seconds: int = int(
+        os.environ.get("GENERATION_QUOTA_WINDOW_SECONDS", "3600")
+    )
+    generation_quota_anonymous: int = int(
+        os.environ.get("GENERATION_QUOTA_ANONYMOUS", "5")
+    )
+    generation_quota_authenticated: int = int(
+        os.environ.get("GENERATION_QUOTA_AUTHENTICATED", "50")
+    )
+    generation_quota_anonymous_network: int = int(
+        os.environ.get("GENERATION_QUOTA_ANONYMOUS_NETWORK", "20")
+    )
+    redis_connect_timeout_seconds: float = float(
+        os.environ.get("REDIS_CONNECT_TIMEOUT_SECONDS", "0.5")
+    )
+    redis_socket_timeout_seconds: float = float(
+        os.environ.get("REDIS_SOCKET_TIMEOUT_SECONDS", "1.0")
+    )
+
     @model_validator(mode="after")
     def validate_groq_model_config(self) -> "Settings":
         if self.groq_model != "openai/gpt-oss-20b":
@@ -189,6 +208,18 @@ class Settings(BaseSettings):
             raise ValueError("GROQ_MODEL_REQUEST_TIMEOUT_SECONDS must be positive")
         if self.groq_creative_revalidation_seconds < 0:
             raise ValueError("GROQ_CREATIVE_REVALIDATION_SECONDS must not be negative")
+        if self.generation_quota_window_seconds < 1:
+            raise ValueError("GENERATION_QUOTA_WINDOW_SECONDS must be positive")
+        if self.generation_quota_anonymous < 1:
+            raise ValueError("GENERATION_QUOTA_ANONYMOUS must be positive")
+        if self.generation_quota_authenticated < 1:
+            raise ValueError("GENERATION_QUOTA_AUTHENTICATED must be positive")
+        if self.generation_quota_anonymous_network < 1:
+            raise ValueError("GENERATION_QUOTA_ANONYMOUS_NETWORK must be positive")
+        if self.redis_connect_timeout_seconds <= 0:
+            raise ValueError("REDIS_CONNECT_TIMEOUT_SECONDS must be positive")
+        if self.redis_socket_timeout_seconds <= 0:
+            raise ValueError("REDIS_SOCKET_TIMEOUT_SECONDS must be positive")
         cost_fields = {
             "GROQ_MODEL_INPUT_COST_PER_MILLION": self.groq_model_input_cost_per_million,
             "GROQ_MODEL_CACHED_INPUT_COST_PER_MILLION": self.groq_model_cached_input_cost_per_million,
