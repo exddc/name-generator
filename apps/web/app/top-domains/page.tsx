@@ -1,7 +1,7 @@
 'use client';
 
 // Libraries
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     useReactTable,
@@ -190,7 +190,7 @@ export default function TopDomains() {
         setVotingDomain(domain);
 
         try {
-            let requestBody: RatingRequestBody = {
+            const requestBody: RatingRequestBody = {
                 domain,
                 vote: vote as 1 | -1,
             };
@@ -315,8 +315,7 @@ export default function TopDomains() {
         );
     };
 
-    const columns = useMemo<ColumnDef<Domain>[]>(
-        () => [
+    const columns: ColumnDef<Domain>[] = [
             {
                 accessorKey: 'domain',
                 header: () => (
@@ -529,17 +528,7 @@ export default function TopDomains() {
                     );
                 },
             },
-        ],
-        [
-            sortBy,
-            sortOrder,
-            domainVotes,
-            votingDomain,
-            favoritingDomain,
-            getVoteForDomain,
-            session?.user?.id,
-        ]
-    );
+        ];
 
     const table = useReactTable({
         data: domains,
@@ -553,7 +542,7 @@ export default function TopDomains() {
         manualSorting: true,
     });
 
-    const fetchDomains = async () => {
+    const fetchDomains = useCallback(async () => {
         setIsLoading(true);
         setHasError(false);
         try {
@@ -625,18 +614,17 @@ export default function TopDomains() {
         } finally {
             setIsLoading(false);
         }
-    };
-
-    useEffect(() => {
-        fetchDomains();
     }, [
+        debouncedSearchQuery,
         page,
         sortBy,
         sortOrder,
-        debouncedSearchQuery,
         statusFilter,
-        session?.user?.id,
     ]);
+
+    useEffect(() => {
+        fetchDomains();
+    }, [fetchDomains, session?.user?.id]);
 
     useEffect(() => {
         let filtered = [...allDomains];

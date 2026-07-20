@@ -1,5 +1,6 @@
 // Components
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function Footer() {
     return (
@@ -63,7 +64,12 @@ export default function Footer() {
             </span>
             <span className="text-xs text-center flex items-center gap-2 mx-auto mt-2">
                 Made in Germany{' '}
-                <img src="/germany.svg" alt="Germany" className="size-4" />
+                <Image
+                    src="/germany.svg"
+                    alt="Germany"
+                    width={16}
+                    height={16}
+                />
             </span>
         </footer>
     );
