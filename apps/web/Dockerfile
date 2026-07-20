@@ -1,35 +1,40 @@
-FROM oven/bun:1.3
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+FROM node:22.23.1-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS dependencies
 
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
 
+FROM node:22.23.1-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS builder
+
+WORKDIR /app
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
-ARG BETTER_AUTH_URL=http://localhost:3000
 ARG NEXT_PUBLIC_BETTER_AUTH_URL=http://localhost:3000
-ARG BETTER_AUTH_SECRET
-ARG PORT=3000
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+    NEXT_PUBLIC_BETTER_AUTH_URL=${NEXT_PUBLIC_BETTER_AUTH_URL}
 
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY . .
+RUN BETTER_AUTH_SECRET=build-only-placeholder-secret-32-bytes \
+    API_JWT_SECRET=build-only-placeholder-secret-32-bytes \
+    npm run build
+
+FROM node:22.23.1-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS runtime
+
+WORKDIR /app
+ARG PORT=3000
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
-    BETTER_AUTH_URL=${BETTER_AUTH_URL} \
-    NEXT_PUBLIC_BETTER_AUTH_URL=${NEXT_PUBLIC_BETTER_AUTH_URL} \
-    BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET} \
+    HOSTNAME=0.0.0.0 \
     PORT=${PORT}
 
-COPY package.json package-lock.json ./
+RUN groupadd --system --gid 1001 nodejs \
+    && useradd --system --uid 1001 --gid nodejs nextjs
 
-RUN bun install --no-save
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-COPY . .
-
-RUN bun run build
-
+USER nextjs
 EXPOSE ${PORT}
-
-CMD ["bun", "run", "start"]
+CMD ["node", "server.js"]
