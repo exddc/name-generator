@@ -1,10 +1,4 @@
-FROM oven/bun:1.3
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+FROM oven/bun:1.3.0
 
 WORKDIR /app
 
@@ -20,16 +14,14 @@ ENV NODE_ENV=production \
     BETTER_AUTH_URL=${BETTER_AUTH_URL} \
     NEXT_PUBLIC_BETTER_AUTH_URL=${NEXT_PUBLIC_BETTER_AUTH_URL} \
     BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET} \
+    HOSTNAME=0.0.0.0 \
     PORT=${PORT}
 
-COPY package.json package-lock.json ./
-
-RUN bun install --no-save
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
 COPY . .
-
 RUN bun run build
 
 EXPOSE ${PORT}
-
 CMD ["bun", "run", "start"]

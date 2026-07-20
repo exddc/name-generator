@@ -19,7 +19,7 @@ Webpage for generating and checking domain names, composed of a Next.js frontend
 ### Prerequisites
 
 - Docker & Docker Compose
-- Node.js 22.23.1 and npm
+- Bun 1.3+
 - Python 3.12+ & Poetry
 
 ### Environment Setup
