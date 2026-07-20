@@ -1,6 +1,6 @@
 services:
   redis:
-    image: redis:7.4.9-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    image: redis:7.4.9-alpine
     profiles: [infra]
     ports:
       - "${REDIS_PORT:-6379}:6379"
@@ -11,7 +11,7 @@ services:
       - domain-generator-network
 
   postgres:
-    image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+    image: postgres:18.4-alpine
     profiles: [infra]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
