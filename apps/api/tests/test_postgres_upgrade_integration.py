@@ -15,10 +15,13 @@ import pytest
 from tortoise import Tortoise
 
 
-pytestmark = pytest.mark.skipif(
-    os.getenv("RUN_POSTGRES_INTEGRATION_TEST") != "1",
-    reason="set RUN_POSTGRES_INTEGRATION_TEST=1 with local PostgreSQL",
-)
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        os.getenv("RUN_POSTGRES_INTEGRATION_TEST") != "1",
+        reason="set RUN_POSTGRES_INTEGRATION_TEST=1 with local PostgreSQL",
+    ),
+]
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations" / "models"
 ADMIN_URL = os.getenv(
