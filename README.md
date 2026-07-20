@@ -19,7 +19,7 @@ Webpage for generating and checking domain names, composed of a Next.js frontend
 ### Prerequisites
 
 - Docker & Docker Compose
-- Bun
+- Node.js 22.23.1 and npm
 - Python 3.12+ & Poetry
 
 ### Environment Setup
@@ -72,7 +72,7 @@ To interact with the protected API endpoints via Bruno:
 ## Services
 
 -   **API**: FastAPI application at `http://localhost:8000`
--   **Web App**: Bun application at `http://localhost:3000`
+-   **Web App**: Next.js application at `http://localhost:3000`
 -   **Worker**: Python background worker
 -   **Postgres**: Database service
 -   **Redis**: Queue and caching service

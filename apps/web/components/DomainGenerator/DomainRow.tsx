@@ -1,7 +1,7 @@
 'use client';
 
 // Libraries
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
     Domain,
     DomainStatusColor,
@@ -33,6 +33,7 @@ const RATING_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
 const RATINGS_GET_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/domain/rating`;
 const FAVORITE_API_URL = `${process.env.NEXT_PUBLIC_API_URL}/v1/user/favorite`;
 const DROPDOWN_FETCH_LIMIT = 5;
+const subscribeToHydration = () => () => {};
 
 // Props
 type DomainRowProps = {
@@ -47,6 +48,12 @@ export default function DomainRow({
     onFavorite,
 }: DomainRowProps) {
     const { data: session } = useSession();
+    const mounted = useSyncExternalStore(
+        subscribeToHydration,
+        () => true,
+        () => false
+    );
+    const hasSession = mounted && Boolean(session?.user?.id);
     const [open, setOpen] = useState(false);
 
     // Variants
@@ -486,7 +493,7 @@ export default function DomainRow({
         setVotingDomain(domain);
 
         try {
-            let requestBody: RatingRequestBody = {
+            const requestBody: RatingRequestBody = {
                 domain,
                 vote: vote as 1 | -1,
             };
@@ -639,6 +646,7 @@ export default function DomainRow({
                     </span>
                     <div className="flex items-center gap-1">
                         <button
+                            aria-label={`Upvote ${domain.domain}`}
                             className={cn(
                                 'hover:cursor-pointer hover:scale-110 transition-all duration-300',
                                 getVoteForDomain(domain.domain) === 1 &&
@@ -656,6 +664,7 @@ export default function DomainRow({
                             />
                         </button>
                         <button
+                            aria-label={`Downvote ${domain.domain}`}
                             className={cn(
                                 'hover:cursor-pointer hover:scale-110 transition-all duration-300',
                                 getVoteForDomain(domain.domain) === -1 &&
@@ -676,11 +685,12 @@ export default function DomainRow({
                 </div>
                 <div className="flex gap-4 items-center justify-end">
                     <button
+                        aria-label={`${isDomainFavorited(domain.domain) ? 'Remove' : 'Save'} ${domain.domain}`}
                         type="button"
                         className={cn(
                             'hover:cursor-pointer hover:scale-110 transition-all duration-300',
                             isDomainFavorited(domain.domain) && 'text-red-600',
-                            !session?.user?.id && 'opacity-50'
+                            !hasSession && 'opacity-50'
                         )}
                         onClick={(e) => {
                             e.preventDefault();
@@ -741,7 +751,7 @@ export default function DomainRow({
                 getVoteForDomain={getVoteForDomain}
                 onFavorite={handleFavorite}
                 isDomainFavorited={isDomainFavorited}
-                hasSession={Boolean(session?.user?.id)}
+                hasSession={hasSession}
             />
         </Card>
     );

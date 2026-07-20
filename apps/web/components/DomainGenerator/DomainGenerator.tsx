@@ -9,13 +9,13 @@ import React, {
     useMemo,
 } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import Link from 'next/link';
 import {
     Domain,
     DomainStatus,
     StreamMessage,
     ApiError,
     UserPreferencesInput,
+    ErrorCode,
 } from '@/lib/types';
 import { useSession } from '@/lib/auth-client';
 import { usePlausible } from 'next-plausible';
@@ -52,7 +52,6 @@ export default function DomainGenerator({
 }: DomainGeneratorProps) {
     const plausible = usePlausible();
     const { data: session } = useSession();
-    const isAuthenticated = !!session;
     const [userInput, setUserInput] = useState(initialSearch || '');
     const [domains, setDomains] = useState<DomainWithMeta[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -235,7 +234,7 @@ export default function DomainGenerator({
         });
     }, []);
 
-    const handleRetry = useCallback(() => {
+    const handleRetry = () => {
         setLastError(null);
         setCanRetry(false);
 
@@ -249,7 +248,7 @@ export default function DomainGenerator({
         setLoadingText('Retrying...');
 
         fetchSuggestionsInternal(controller, false);
-    }, [session?.user?.id, userInput]);
+    };
 
     const buildPreferences = (): UserPreferencesInput | undefined => {
         const likedDomains: string[] = [];
@@ -312,26 +311,14 @@ export default function DomainGenerator({
                 }
             }
 
-            let response: Response;
-            try {
-                response = await apiFetch(DOMAIN_SUGGESTION_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(requestBody),
-                    signal: controller.signal,
-                });
-            } catch (error) {
-                // if ((error as Error)?.message === 'AUTH_REQUIRED') {
-                //     toast.info('Sign in to generate new domain ideas', {
-                //         description:
-                //             'Log in to request more domain suggestions.',
-                //     });
-                //     return;
-                // }
-                throw error;
-            }
+            const response = await apiFetch(DOMAIN_SUGGESTION_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+                signal: controller.signal,
+            });
 
             if (!response.ok || !response.body) {
                 let errorData: ApiError;
@@ -341,7 +328,7 @@ export default function DomainGenerator({
                 } catch {
                     errorData = {
                         error: true,
-                        code: 'internal_error' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+                        code: ErrorCode.INTERNAL_ERROR,
                         message:
                             'Failed to connect to the server. Please check your connection and try again.',
                         retry_allowed: true,
@@ -425,7 +412,7 @@ export default function DomainGenerator({
                                     error: true,
                                     code:
                                         payload.code ||
-                                        ('internal_error' as any), // eslint-disable-line @typescript-eslint/no-explicit-any
+                                        ErrorCode.INTERNAL_ERROR,
                                     message:
                                         payload.message ||
                                         'Failed to generate domains.',
@@ -437,7 +424,7 @@ export default function DomainGenerator({
                             } else {
                                 handleApiError({
                                     error: true,
-                                    code: 'internal_error' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+                                    code: ErrorCode.INTERNAL_ERROR,
                                     message: 'Failed to generate domains.',
                                     retry_allowed: true,
                                 });
@@ -464,7 +451,7 @@ export default function DomainGenerator({
                 console.error(error);
                 handleApiError({
                     error: true,
-                    code: 'internal_error' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+                    code: ErrorCode.INTERNAL_ERROR,
                     message:
                         error instanceof Error &&
                         error.message.includes('fetch')
