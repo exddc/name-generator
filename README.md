@@ -51,13 +51,13 @@ The api endpoints can be tested with the [Bruno](https://github.com/usebruno/bru
 ## Required verification baseline
 
 The commands below are the same gates run for every pull request. They are
-designed to work from a clean checkout with Node.js 22.23.1, Python 3.12.13, Poetry
+designed to work from a clean checkout with Bun 1.3.0, Python 3.12.13, Poetry
 1.8.5, and Docker available.
 
 Install dependencies once:
 
 ```bash
-cd apps/web && npm ci
+cd apps/web && bun install --frozen-lockfile
 cd ../api && poetry install --no-interaction --no-ansi
 cd ../worker && poetry install --no-interaction --no-ansi
 cd ../..
@@ -66,9 +66,9 @@ cd ../..
 Run the required fast checks:
 
 ```bash
-cd apps/web && npm run lint
-npm run typecheck
-npm run build
+cd apps/web && bun run lint
+bun run typecheck
+bun run build
 cd ../api && poetry run pytest -q
 cd ../worker && poetry run pytest -q
 ```
@@ -100,8 +100,8 @@ provider boundaries; the API integration suite owns those server contracts.
 
 ```bash
 cd apps/web
-npx playwright install chromium
-npm run test:e2e:ci
+bunx playwright install chromium
+bun run test:e2e:ci
 ```
 
 CI uses one bounded runner to avoid duplicated checkouts and dependency installs.
