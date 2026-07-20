@@ -9,10 +9,13 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.10"
-requests = "^2.32.3"
+requests = "^2.34.2"
 pydantic = "^2.10.4"
 rq = "^2.6.0"
 redis = "^6.4.0"
+click = ">=8.3.3,<9"
+idna = ">=3.15,<4"
+urllib3 = ">=2.7,<3"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.0"
