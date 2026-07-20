@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from api.config import GroqModelProfile, Settings, get_settings
 from api.exceptions import GenerationFailedError, RateLimitedError, ServiceUnavailableError
 from api.suggestor.base import SuggestorBase
+from api.utils import normalize_domain_name
 from .prompts import PromptType, SimilarContext, UserPreferences, create_prompt
 
 
@@ -47,6 +48,22 @@ CANDIDATE_JSON_SCHEMA = {
     "required": ["candidates"],
     "additionalProperties": False,
 }
+
+def normalize_provider_candidates(candidates: list[str]) -> list[str]:
+    """Normalize provider output without turning malformed values into domains."""
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        try:
+            value = normalize_domain_name(candidate)
+        except ValueError:
+            continue
+        if value not in seen:
+            seen.add(value)
+            normalized.append(value)
+    if not normalized:
+        raise ValueError("provider returned no valid domain candidates")
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -564,10 +581,10 @@ class GroqSuggestor(SuggestorBase):
             raise ValueError("Model response did not contain text content")
 
         candidates = CandidateResponse.model_validate_json(content).candidates
-        sanitized = [candidate.strip().lower().replace(" ", "") for candidate in candidates]
+        sanitized = normalize_provider_candidates(candidates)
         usage = _usage_dict(completion)
         return GenerationResult(
-            candidates=list(dict.fromkeys(sanitized)),
+            candidates=sanitized,
             requested_model=profile.model,
             model=getattr(completion, "model", None) or profile.model,
             profile_name=profile.name,

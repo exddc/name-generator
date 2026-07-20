@@ -1,0 +1,13 @@
+[
+  {"input": "Example.COM.", "normalized": "example.com"},
+  {"input": " valid-name.co.uk ", "normalized": "valid-name.co.uk"},
+  {"input": "xn--bcher-kva.de", "normalized": "xn--bcher-kva.de"},
+  {"input": "evil .com", "normalized": null},
+  {"input": "https://example.com/path", "normalized": null},
+  {"input": "192.0.2.1", "normalized": null},
+  {"input": "-bad.com", "normalized": null},
+  {"input": "bad..com", "normalized": null},
+  {"input": "localhost", "normalized": null},
+  {"input": "example.123", "normalized": null},
+  {"input": "bücher.de", "normalized": null}
+]

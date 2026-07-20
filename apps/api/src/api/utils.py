@@ -1,6 +1,7 @@
 """Utility functions for domain processing and database operations."""
 
 import datetime
+import re
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -284,54 +285,55 @@ class MetricsTracker:
         return metrics
 
 
+DOMAIN_LABEL_PATTERN = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+
+
+def normalize_domain_name(domain: str) -> str:
+    """Return the canonical ASCII domain form or reject the value."""
+    if not isinstance(domain, str):
+        raise ValueError("domain must be a string")
+
+    value = domain.strip().lower().rstrip(".")
+    if not value or len(value) > 253 or "." not in value:
+        raise ValueError("domain must contain a public suffix")
+    if any(character in value for character in ("/", ":", "@")):
+        raise ValueError("URLs and credentials are not domain names")
+    if any(ord(character) > 127 for character in value):
+        raise ValueError("domain must use ASCII or punycode labels")
+
+    labels = value.split(".")
+    if any(DOMAIN_LABEL_PATTERN.fullmatch(label) is None for label in labels):
+        raise ValueError("domain contains an invalid label")
+    if labels[-1].isdigit():
+        raise ValueError("domain suffix must not be numeric")
+    return value
+
+
 def is_valid_domain(domain: str) -> bool:
-    """
-    Validate that a domain can be safely checked (IDNA encodable).
-    
-    Checks for:
-    - English characters only (ASCII)
-    - Invalid Unicode characters
-    - Ability to encode with IDNA codec
-    - Basic domain format
-    
-    Args:
-        domain: Domain string to validate
-        
-    Returns:
-        bool: True if domain is valid, False otherwise
-    """
-    if not domain or not isinstance(domain, str):
-        return False
-    
-    domain = domain.strip()
-    if not domain:
-        return False
-    
-    if '\ufffd' in domain:
-        return False
-    
-    for char in domain:
-        if ord(char) > 127:
-            return False
-    
     try:
-        domain.encode('utf-8')
-    except UnicodeEncodeError:
+        normalize_domain_name(domain)
+    except ValueError:
         return False
-    
-    if '.' not in domain:
-        return False
-    
-    parts = domain.split('.')
-    if any(not part or part.strip() == '' for part in parts):
-        return False
-    
-    try:
-        domain.encode('idna')
-    except (UnicodeEncodeError, ValueError):
-        return False
-    
     return True
+
+
+def rating_counter_transition(
+    upvotes: int, downvotes: int, old_vote: int | None, new_vote: int
+) -> tuple[int, int]:
+    """Apply one user's vote transition without allowing negative counters."""
+    if old_vote not in (None, -1, 1) or new_vote not in (-1, 1):
+        raise ValueError("votes must be -1, 1, or None")
+    if old_vote == new_vote:
+        return upvotes, downvotes
+    if old_vote == 1:
+        upvotes = max(0, upvotes - 1)
+    elif old_vote == -1:
+        downvotes = max(0, downvotes - 1)
+    if new_vote == 1:
+        upvotes += 1
+    else:
+        downvotes += 1
+    return upvotes, downvotes
 
 
 def filter_valid_domains(domains: list[str]) -> tuple[list[str], list[str]]:
@@ -344,13 +346,13 @@ def filter_valid_domains(domains: list[str]) -> tuple[list[str], list[str]]:
     Returns:
         tuple: (valid_domains, invalid_domains)
     """
-    valid = []
-    invalid = []
+    valid: list[str] = []
+    invalid: list[str] = []
     
     for domain in domains:
-        if is_valid_domain(domain):
-            valid.append(domain)
-        else:
+        try:
+            valid.append(normalize_domain_name(domain))
+        except ValueError:
             invalid.append(domain)
     
     return valid, invalid
@@ -571,15 +573,9 @@ async def create_domain_rating(
             existing_rating.vote = vote
             await existing_rating.save()
             
-            if old_vote == 1:
-                domain_obj.upvotes = max(0, domain_obj.upvotes - 1)
-            else:
-                domain_obj.downvotes = max(0, domain_obj.downvotes - 1)
-            
-            if vote == 1:
-                domain_obj.upvotes += 1
-            else:
-                domain_obj.downvotes += 1
+            domain_obj.upvotes, domain_obj.downvotes = rating_counter_transition(
+                domain_obj.upvotes, domain_obj.downvotes, old_vote, vote
+            )
             await domain_obj.save()
         
         return existing_rating
@@ -601,10 +597,9 @@ async def create_domain_rating(
             user_id=None,
         )
         
-        if vote == 1:
-            domain_obj.upvotes += 1
-        else:
-            domain_obj.downvotes += 1
+        domain_obj.upvotes, domain_obj.downvotes = rating_counter_transition(
+            domain_obj.upvotes, domain_obj.downvotes, None, vote
+        )
         await domain_obj.save()
         
         return rating
