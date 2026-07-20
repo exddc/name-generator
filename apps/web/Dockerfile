@@ -1,10 +1,10 @@
-FROM node:22.23.1-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS dependencies
+FROM oven/bun:1.3.0 AS dependencies
 
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
-FROM node:22.23.1-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS builder
+FROM oven/bun:1.3.0 AS builder
 
 WORKDIR /app
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -14,12 +14,14 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
     NEXT_PUBLIC_BETTER_AUTH_URL=${NEXT_PUBLIC_BETTER_AUTH_URL}
 
 COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=dependencies /app/package.json ./package.json
+COPY --from=dependencies /app/bun.lock ./bun.lock
 COPY . .
 RUN BETTER_AUTH_SECRET=build-only-placeholder-secret-32-bytes \
     API_JWT_SECRET=build-only-placeholder-secret-32-bytes \
-    npm run build
+    bun run build
 
-FROM node:22.23.1-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS runtime
+FROM oven/bun:1.3.0 AS runtime
 
 WORKDIR /app
 ARG PORT=3000
@@ -28,13 +30,15 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=${PORT}
 
-RUN groupadd --system --gid 1001 nodejs \
-    && useradd --system --uid 1001 --gid nodejs nextjs
+RUN groupadd --system --gid 1001 bunjs \
+    && useradd --system --uid 1001 --gid bunjs nextjs
 
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:bunjs /app/public ./public
+COPY --from=builder --chown=nextjs:bunjs /app/.next ./.next
+COPY --from=builder --chown=nextjs:bunjs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:bunjs /app/package.json ./package.json
+COPY --from=builder --chown=nextjs:bunjs /app/next.config.ts ./next.config.ts
 
 USER nextjs
 EXPOSE ${PORT}
-CMD ["node", "server.js"]
+CMD ["bun", "run", "start"]
