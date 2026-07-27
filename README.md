@@ -50,66 +50,32 @@ The api endpoints can be tested with the [Bruno](https://github.com/usebruno/bru
 
 ## Required verification baseline
 
-The commands below are the same gates run for every pull request. They are
-designed to work from a clean checkout with Bun 1.3.0, Python 3.12.13, Poetry
-1.8.5, and Docker available.
+PR merge is gated by the GitHub Actions workflow `.github/workflows/ci.yml`.
+Configure the repository ruleset to **require the single check named
+`CI required`** (aggregator over `web`, `api`, `worker`, and `supply-chain`).
 
-Install dependencies once:
-
-```bash
-cd apps/web && bun install --frozen-lockfile
-cd ../api && poetry install --no-interaction --no-ansi
-cd ../worker && poetry install --no-interaction --no-ansi
-cd ../..
-```
-
-Run the required fast checks:
+Clean-checkout gates live in one script so local and CI stay aligned
+(Bun 1.3.0, Python 3.12.13, Poetry 1.8.5; Docker for integration/containers):
 
 ```bash
-cd apps/web && bun run lint
-bun run typecheck
-bun run build
-cd ../api && poetry run pytest -q
-cd ../worker && poetry run pytest -q
+chmod +x scripts/verify.sh   # once after clone if needed
+
+# Fast feedback: web lint/typecheck/build + API unit + worker unit
+./scripts/verify.sh --fast
+
+# Full baseline (needs Postgres + Redis on localhost for integration):
+#   docker run --rm -d --name ng-pg -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:18.4-alpine
+#   docker run --rm -d --name ng-redis -p 6379:6379 redis:7.4.9-alpine
+./scripts/verify.sh --full
 ```
 
-Run the Postgres and Redis integration checks:
+Individual targets: `web`, `web-e2e`, `api`, `api-integration`, `worker`,
+`supply-chain` (see `./scripts/verify.sh --help`).
 
-```bash
-docker run --rm -d --name name-generator-test-postgres \
-  -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:18.4-alpine
-docker run --rm -d --name name-generator-test-redis \
-  -p 6379:6379 redis:7.4.9-alpine
-
-cd apps/api
-RUN_POSTGRES_INTEGRATION_TEST=1 RUN_REDIS_INTEGRATION_TEST=1 \
-TEST_DATABASE_ADMIN_URL=postgresql://postgres:password@127.0.0.1:5432/postgres \
-TEST_REDIS_URL=redis://127.0.0.1:6379/15 \
-REDIS_URL=redis://127.0.0.1:6379/15 \
-API_JWT_SECRET=test-only-secret-at-least-32-bytes \
-GROQ_VALIDATE_MODEL_ON_STARTUP=false \
-poetry run pytest -q -m integration
-
-cd ../..
-docker stop name-generator-test-postgres name-generator-test-redis
-```
-
-Run the deterministic mocked browser contract. It verifies anonymous generation
-and authenticated save/rate UI behavior, but deliberately stubs auth, API, and
-provider boundaries; the API integration suite owns those server contracts.
-
-```bash
-cd apps/web
-bunx playwright install chromium
-bun run test:e2e:ci
-```
-
-CI uses one bounded runner to avoid duplicated checkouts and dependency installs.
-That runner executes all application and integration tests, audits production
-dependencies, scans the working tree for secrets and high/critical findings,
-and validates Compose plus every Dockerfile without paying to build three full
-images on each pull request. Configure the repository ruleset to require the
-single `CI required` check before merging.
+Browser E2E (`web-e2e` / `test:e2e:ci`) is a **mocked UI contract**: anonymous
+generation and authenticated save/rate. Auth, API, and provider boundaries are
+stubbed; server contracts live in the API unit/integration suites. On CI
+failure, download the `playwright-report` artifact for traces.
 
 ### Authentication for Bruno
 
