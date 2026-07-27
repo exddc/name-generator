@@ -13,6 +13,7 @@ import httpx
 import jwt
 import pytest
 from tortoise import Tortoise
+from redis import Redis
 
 
 pytestmark = [
@@ -153,7 +154,15 @@ async def _exercise_upgrade() -> None:
 
         from api.config import get_settings
         from api.main import init_fastapi
-        from api.models.db_models import LlmGenerationMetric, SuggestionMetrics
+        from api.models.db_models import (
+            Domain,
+            LlmGenerationMetric,
+            Suggestion,
+            SuggestionMetrics,
+        )
+        from api.quotas import quota_key, quota_redis_client
+        from api.routes import domain as domain_routes
+        from api.suggestor.groq import GenerationResult
         from api.utils import MetricsTracker
 
         tracker = MetricsTracker(generation_path="lexicon")
@@ -259,6 +268,64 @@ async def _exercise_upgrade() -> None:
             "total_tokens": 6_000_200,
         }
         assert peak < 20 * 1024 * 1024
+
+        redis_url = os.getenv("TEST_REDIS_URL", settings.redis_url)
+        quota_client = Redis.from_url(redis_url)
+        quota_client.delete(quota_key("upgrade-test"))
+        quota_settings = settings.model_copy(update={"redis_url": redis_url})
+        generation = GenerationResult(
+            candidates=["boundaryproof.com"],
+            requested_model=settings.groq_model,
+            model=settings.groq_model,
+            profile_name="default",
+            usage={"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+            cost_usd=0.0,
+            latency_ms=1,
+        )
+        suggestor = AsyncMock()
+        suggestor.generate.return_value = generation
+
+        try:
+            with patch("api.quotas.get_settings", return_value=quota_settings), patch.object(
+                domain_routes, "GroqSuggestor", return_value=suggestor
+            ), patch.object(
+                domain_routes,
+                "enqueue_and_wait",
+                new=AsyncMock(
+                    return_value=[
+                        {"domain": "boundaryproof.com", "status": "available"}
+                    ]
+                ),
+            ):
+                async with httpx.AsyncClient(
+                    transport=transport, base_url="http://test"
+                ) as client:
+                    stream_response = await client.post(
+                        "/v1/domain/stream",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={
+                            "description": "Cross-boundary integration proof",
+                            "count": 1,
+                            "user_id": "upgrade-test",
+                        },
+                    )
+
+            await asyncio.sleep(0)
+            assert stream_response.status_code == 200, stream_response.text
+            assert stream_response.headers["cache-control"] == "no-cache, no-transform"
+            assert stream_response.headers["x-accel-buffering"] == "no"
+            assert "event: start" in stream_response.text
+            assert "event: suggestions" in stream_response.text
+            assert "event: complete" in stream_response.text
+            assert quota_client.exists(quota_key("upgrade-test")) == 1
+            assert await Suggestion.filter(
+                description="Cross-boundary integration proof",
+                user_id="upgrade-test",
+            ).exists()
+            assert await Domain.filter(domain="boundaryproof.com").exists()
+        finally:
+            quota_client.delete(quota_key("upgrade-test"))
+            quota_redis_client.cache_clear()
     finally:
         if tortoise_initialized:
             await Tortoise.close_connections()

@@ -28,6 +28,7 @@ class DomainGeneratorException(HTTPException):
         details: str | None = None,
         retry_allowed: bool = False,
         status_code: int = 500,
+        headers: dict[str, str] | None = None,
     ):
         self.code = code
         self.user_message = message or ERROR_MESSAGES.get(code, "An unexpected error occurred.")
@@ -42,6 +43,7 @@ class DomainGeneratorException(HTTPException):
                 details=details,
                 retry_allowed=retry_allowed,
             ).model_dump(),
+            headers=headers,
         )
 
 
@@ -72,12 +74,20 @@ class TimeoutError(DomainGeneratorException):
 class RateLimitedError(DomainGeneratorException):
     """Raised when the user or service is rate limited."""
     
-    def __init__(self, details: str | None = None):
+    def __init__(
+        self, details: str | None = None, retry_after_seconds: int | None = None
+    ):
+        headers = (
+            {"Retry-After": str(max(1, retry_after_seconds))}
+            if retry_after_seconds is not None
+            else None
+        )
         super().__init__(
             code=ErrorCode.RATE_LIMITED,
             details=details,
             retry_allowed=True,
             status_code=429,
+            headers=headers,
         )
 
 

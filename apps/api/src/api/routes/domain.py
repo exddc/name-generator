@@ -2,7 +2,6 @@
 
 import asyncio
 import datetime
-import json
 import time
 from typing import List, Optional
 
@@ -50,6 +49,8 @@ from api.security import (
     ensure_user_matches,
     require_authenticated_user,
 )
+from api.quotas import QuotaResult, enforce_generation_quota
+from api.sse import SSE_RESPONSE_HEADERS, format_sse, with_heartbeat
 from api.models.db_models import Rating as RatingDB, Domain as DomainDB, Favorite as FavoriteDB, Suggestion as SuggestionDB, WorkerMetrics, QueueSnapshot
 from tortoise import connections
 from tortoise.expressions import Q, F
@@ -60,8 +61,7 @@ redis_conn = Redis.from_url(settings.redis_url)
 queue = Queue(settings.rq_queue_name, connection=redis_conn)
 
 
-def _format_sse(event: str, data: dict) -> str:
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+_format_sse = format_sse
 
 
 router = APIRouter(prefix="/domain", tags=["domain"])
@@ -353,6 +353,7 @@ async def get_domain_variants(
     background_tasks: BackgroundTasks,
     limit: int = Query(10, ge=1, le=100, description="Number of available TLD variants to find."),
     _: AuthenticatedUser = Depends(require_authenticated_user),
+    __: QuotaResult = Depends(enforce_generation_quota),
 ) -> ResponseDomainSuggestion:
     """
     Check a domain against a list of TLDs, iterating until enough available domains are found.
@@ -441,6 +442,7 @@ async def get_domain_variants_stream(
     domain_name: str,
     limit: int = Query(10, ge=1, le=100, description="Number of available TLD variants to find."),
     _: AuthenticatedUser = Depends(require_authenticated_user),
+    __: QuotaResult = Depends(enforce_generation_quota),
 ) -> StreamingResponse:
     """Stream domain variant checks as they are processed."""
     metrics = MetricsTracker(generation_path="variants")
@@ -539,14 +541,19 @@ async def get_domain_variants_stream(
             },
         )
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        with_heartbeat(event_generator(), interval_seconds=15),
+        media_type="text/event-stream",
+        headers=SSE_RESPONSE_HEADERS,
+    )
 
 
 @router.post("/")
 async def suggest(
     request: RequestDomainSuggestion,
     background_tasks: BackgroundTasks,
-    auth_user: AuthenticatedUser = Depends(require_authenticated_user)
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user),
+    _: QuotaResult = Depends(enforce_generation_quota),
 ) -> ResponseDomainSuggestion:
     """Generate suggestions and enrich them with worker-provided availability statuses."""
     request.user_id = ensure_user_matches(request.user_id, auth_user)
@@ -668,7 +675,8 @@ async def suggest(
 @router.post("/stream")
 async def suggest_stream(
     request: RequestDomainSuggestion,
-    auth_user: AuthenticatedUser = Depends(require_authenticated_user)
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user),
+    _: QuotaResult = Depends(enforce_generation_quota),
 ) -> StreamingResponse:
     """Stream domain suggestions as they are generated and checked."""
     request.user_id = ensure_user_matches(request.user_id, auth_user)
@@ -682,7 +690,6 @@ async def suggest_stream(
     except Exception:
         pass
     
-    # Personalized
     user_preferences: Optional[UserPreferences] = None
     if request.personalized and request.preferences:
         user_preferences = UserPreferences(
@@ -763,7 +770,6 @@ async def suggest_stream(
                 except DomainGeneratorException as e:
                     metrics.add_error(f"LLM error: {str(e)}")
                     metrics.stop_timer("llm")
-                    # Send user-friendly error to client
                     error_response = ErrorResponse(
                         code=e.code,
                         message=e.user_message,
@@ -956,13 +962,18 @@ async def suggest_stream(
             )
             yield _format_sse("error", error_response.model_dump())
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        with_heartbeat(event_generator(), interval_seconds=15),
+        media_type="text/event-stream",
+        headers=SSE_RESPONSE_HEADERS,
+    )
 
 
 @router.post("/similar/stream")
 async def suggest_similar_stream(
     request: RequestSimilarDomains,
-    auth_user: AuthenticatedUser = Depends(require_authenticated_user)
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user),
+    _: QuotaResult = Depends(enforce_generation_quota),
 ) -> StreamingResponse:
     """Stream domain suggestions that are similar to a source domain."""
     request.user_id = ensure_user_matches(request.user_id, auth_user)
@@ -1232,7 +1243,11 @@ async def suggest_similar_stream(
             )
             yield _format_sse("error", error_response.model_dump())
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        with_heartbeat(event_generator(), interval_seconds=15),
+        media_type="text/event-stream",
+        headers=SSE_RESPONSE_HEADERS,
+    )
 
 
 async def enqueue_and_wait(domains: List[str], metrics: Optional[MetricsTracker] = None) -> List[dict[str, str]]:
