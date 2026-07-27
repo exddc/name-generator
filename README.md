@@ -48,6 +48,35 @@ For development instructions, refer to the specific application documentation in
 
 The api endpoints can be tested with the [Bruno](https://github.com/usebruno/bruno) client. The collections are in the `apps/api/collections/` directory.
 
+## Required verification baseline
+
+PR merge is gated by the GitHub Actions workflow `.github/workflows/ci.yml`.
+Configure the repository ruleset to **require the single check named
+`CI required`** (aggregator over `web`, `api`, `worker`, and `supply-chain`).
+
+Clean-checkout gates live in one script so local and CI stay aligned
+(Bun 1.3.0, Python 3.12.13, Poetry 1.8.5; Docker for integration/containers):
+
+```bash
+chmod +x scripts/verify.sh   # once after clone if needed
+
+# Fast feedback: web lint/typecheck/build + API unit + worker unit
+./scripts/verify.sh --fast
+
+# Full baseline (needs Postgres + Redis on localhost for integration):
+#   docker run --rm -d --name ng-pg -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:18.4-alpine
+#   docker run --rm -d --name ng-redis -p 6379:6379 redis:7.4.9-alpine
+./scripts/verify.sh --full
+```
+
+Individual targets: `web`, `web-e2e`, `api`, `api-integration`, `worker`,
+`supply-chain` (see `./scripts/verify.sh --help`).
+
+Browser E2E (`web-e2e` / `test:e2e:ci`) is a **mocked UI contract**: anonymous
+generation and authenticated save/rate. Auth, API, and provider boundaries are
+stubbed; server contracts live in the API unit/integration suites. On CI
+failure, download the `playwright-report` artifact for traces.
+
 ### Authentication for Bruno
 
 To interact with the protected API endpoints via Bruno:
