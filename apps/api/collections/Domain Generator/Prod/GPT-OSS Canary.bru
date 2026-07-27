@@ -1,0 +1,20 @@
+meta {
+  name: GPT-OSS Canary
+  type: http
+  seq: 14
+}
+
+get {
+  url: https://api.name-generator.timoweiss.me/health/canary
+  body: none
+  auth: none
+}
+
+headers {
+  X-Canary-Token: {{canary_token}}
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

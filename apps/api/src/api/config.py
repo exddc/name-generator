@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     groq_validate_model_on_startup: bool = os.environ.get("GROQ_VALIDATE_MODEL_ON_STARTUP", True)
     """Verify that the configured model is available before accepting traffic"""
 
+    # Monitoring
+    monitoring_canary_token: str = os.environ.get("MONITORING_CANARY_TOKEN", "")
+    """Shared secret for /health/canary probes from the external monitor"""
+
     # CORS Settings
     cors_allow_origins: str | None = os.environ.get("CORS_ALLOW_ORIGINS", "http://localhost:3000")
     """Comma-separated list of allowed CORS origins"""

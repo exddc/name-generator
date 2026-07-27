@@ -10,6 +10,7 @@ Webpage for generating and checking domain names, composed of a Next.js frontend
 │   ├── api/        # FastAPI backend service
 │   ├── web/        # Next.js frontend application
 │   └── worker/     # Python background worker for domain checks
+├── docs/monitoring.md  # App monitor contract for shared Uptime Kuma (TW-267)
 ├── docker-compose.yaml
 └── README.md
 ```
@@ -105,3 +106,8 @@ To interact with the protected API endpoints via Bruno:
 -   **Worker**: Python background worker
 -   **Postgres**: Database service
 -   **Redis**: Queue and caching service
+
+## Production monitoring
+
+Shared Uptime Kuma (separate VPS, not in this repo). App probe contract and runbook:
+[`docs/monitoring.md`](docs/monitoring.md).

@@ -198,6 +198,61 @@ def _safe_error_diagnostics(exc: BaseException, *, include_traceback: bool = Fal
     return diagnostics
 
 
+def classify_provider_failure(exc: BaseException) -> str:
+    """Map provider failures to monitorable classes without reading prompt content."""
+    if isinstance(exc, groq.APITimeoutError):
+        return "timeout"
+    if isinstance(exc, groq.APIConnectionError):
+        return "connection_error"
+    if isinstance(exc, groq.RateLimitError):
+        return "rate_limited"
+    if isinstance(exc, (ValidationError, ValueError)):
+        return "invalid_contract"
+
+    diagnostics = _safe_error_diagnostics(exc)
+    provider_code = str(diagnostics.get("provider_error_code") or "").lower()
+    if provider_code in {"model_not_found", "model_not_available", "not_found"}:
+        return "model_not_found"
+    if any(
+        token in provider_code
+        for token in (
+            "unsupported",
+            "invalid_parameter",
+            "invalid_request",
+            "json_schema",
+            "unknown_parameter",
+        )
+    ):
+        return "unsupported_parameter"
+
+    status_code = diagnostics.get("provider_http_status")
+    if status_code == 404:
+        return "model_not_found"
+    if isinstance(status_code, int) and 400 <= status_code < 500:
+        return "provider_4xx"
+    if isinstance(status_code, int) and status_code >= 500:
+        return "provider_5xx"
+    return "unexpected"
+
+
+@dataclass(frozen=True)
+class CanaryProbeResult:
+    """Safe operational result for the GPT-OSS monitoring canary."""
+
+    status: str
+    latency_ms: int
+    models: dict[str, dict[str, object]]
+    checks: dict[str, dict[str, object]]
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "status": self.status,
+            "latency_ms": self.latency_ms,
+            "models": self.models,
+            "checks": self.checks,
+        }
+
+
 def _usage_dict(completion: object) -> dict[str, int]:
     usage = getattr(completion, "usage", None)
     if usage is None:
@@ -275,6 +330,7 @@ class GroqSuggestor(SuggestorBase):
                     model=profile.model,
                     profile=profile.name,
                     reason=reason,
+                    error_class=classify_provider_failure(exc),
                     **_safe_error_diagnostics(exc),
                 )
                 if profile.name == "default":
@@ -294,6 +350,174 @@ class GroqSuggestor(SuggestorBase):
                 include_reasoning=False,
             )
         return results
+
+    def _probe_model_presence(self, profile: GroqModelProfile) -> dict[str, object]:
+        started = time.perf_counter()
+        try:
+            effective_model = self._retrieve_exact_model(profile)
+            latency_ms = round((time.perf_counter() - started) * 1000)
+            return {
+                "status": "ok",
+                "latency_ms": latency_ms,
+                "effective_model": effective_model,
+            }
+        except Exception as exc:
+            latency_ms = round((time.perf_counter() - started) * 1000)
+            error_class = classify_provider_failure(exc)
+            model_availability.set(
+                profile.model,
+                False,
+                error_class,
+                retry_after_seconds=(
+                    self.settings.groq_creative_revalidation_seconds
+                    if profile.name == "creative"
+                    else 0
+                ),
+            )
+            return {
+                "status": "error",
+                "latency_ms": latency_ms,
+                "error_class": error_class,
+                **_safe_error_diagnostics(exc),
+            }
+
+    def _probe_default_contract(self, profile: GroqModelProfile) -> dict[str, object]:
+        """Run a fixed, non-user prompt against the default model only."""
+        started = time.perf_counter()
+        try:
+            completion = self.client.chat.completions.create(
+                model=profile.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            "Return exactly one brandable domain candidate for a "
+                            "monitoring canary. Prefer a short .com name."
+                        ),
+                    }
+                ],
+                temperature=profile.temperature,
+                max_completion_tokens=min(profile.max_completion_tokens, 256),
+                top_p=profile.top_p,
+                reasoning_effort=profile.reasoning_effort,
+                include_reasoning=False,
+                stream=False,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "domain_candidates",
+                        "strict": True,
+                        "schema": CANDIDATE_JSON_SCHEMA,
+                    },
+                },
+            )
+            content = completion.choices[0].message.content
+            if not isinstance(content, str):
+                raise ValueError("Model response did not contain text content")
+            candidates = CandidateResponse.model_validate_json(content).candidates
+            sanitized = normalize_provider_candidates(candidates)
+            latency_ms = round((time.perf_counter() - started) * 1000)
+            usage = _usage_dict(completion)
+            return {
+                "status": "ok",
+                "latency_ms": latency_ms,
+                "candidate_count": len(sanitized),
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+                "cost_usd": calculate_cost_usd(profile, usage),
+            }
+        except Exception as exc:
+            latency_ms = round((time.perf_counter() - started) * 1000)
+            return {
+                "status": "error",
+                "latency_ms": latency_ms,
+                "error_class": classify_provider_failure(exc),
+                **_safe_error_diagnostics(exc),
+            }
+
+    def run_gpt_oss_canary(self) -> CanaryProbeResult:
+        """Low-frequency GPT-OSS probe used by external monitors.
+
+        Presence checks cover both models. A single cheap structured completion
+        exercises unsupported-parameter and invalid-contract paths on the default
+        model. Prompts and credentials are never logged or returned.
+        """
+        started = time.perf_counter()
+        default_profile = self.settings.groq_default_profile
+        creative_profile = self.settings.groq_creative_profile
+
+        models = {
+            "default": self._probe_model_presence(default_profile),
+            "creative": self._probe_model_presence(creative_profile),
+        }
+        checks: dict[str, dict[str, object]] = {
+            "model_presence_default": {
+                "status": models["default"]["status"],
+                "error_class": models["default"].get("error_class"),
+            },
+            "model_presence_creative": {
+                "status": models["creative"]["status"],
+                "error_class": models["creative"].get("error_class"),
+            },
+        }
+
+        if models["default"]["status"] == "ok":
+            contract = self._probe_default_contract(default_profile)
+            checks["default_contract"] = {
+                "status": contract["status"],
+                "latency_ms": contract["latency_ms"],
+                "error_class": contract.get("error_class"),
+                "candidate_count": contract.get("candidate_count"),
+                "total_tokens": contract.get("total_tokens"),
+                "cost_usd": contract.get("cost_usd"),
+            }
+            if contract["status"] == "ok":
+                model_availability.set(default_profile.model, True)
+        else:
+            checks["default_contract"] = {
+                "status": "skipped",
+                "error_class": models["default"].get("error_class"),
+            }
+
+        if models["creative"]["status"] == "ok":
+            model_availability.set(creative_profile.model, True)
+
+        failures = [
+            name
+            for name, check in checks.items()
+            if check.get("status") == "error"
+        ]
+        status = "ok" if not failures else "error"
+        latency_ms = round((time.perf_counter() - started) * 1000)
+        result = CanaryProbeResult(
+            status=status,
+            latency_ms=latency_ms,
+            models={
+                "default": {
+                    "model": default_profile.model,
+                    **models["default"],
+                },
+                "creative": {
+                    "model": creative_profile.model,
+                    **models["creative"],
+                },
+            },
+            checks=checks,
+        )
+        _structured_log(
+            "llm_canary_completed",
+            logging.INFO if status == "ok" else logging.WARNING,
+            status=status,
+            latency_ms=latency_ms,
+            failed_checks=failures,
+            default_error_class=checks["model_presence_default"].get("error_class")
+            or checks["default_contract"].get("error_class"),
+            creative_error_class=checks["model_presence_creative"].get("error_class"),
+            contract_latency_ms=checks["default_contract"].get("latency_ms"),
+            contract_cost_usd=checks["default_contract"].get("cost_usd"),
+        )
+        return result
 
     async def _ensure_model_available(
         self, profile: GroqModelProfile, prompt_type: PromptType
@@ -478,7 +702,7 @@ class GroqSuggestor(SuggestorBase):
                     raise ServiceUnavailableError(details="Unable to connect to the AI service.")
 
             except groq.APIStatusError as exc:
-                error_class = "provider_4xx" if 400 <= exc.status_code < 500 else "provider_5xx"
+                error_class = classify_provider_failure(exc)
                 self._log_attempt_error(profile, prompt_type, attempt, error_class, exc)
                 if exc.status_code == 403 and profile.name == "creative":
                     model_availability.set(
@@ -498,7 +722,13 @@ class GroqSuggestor(SuggestorBase):
                     raise ServiceUnavailableError(details="AI service is temporarily unavailable.")
 
             except (ValidationError, ValueError) as exc:
-                self._log_attempt_error(profile, prompt_type, attempt, "invalid_contract", exc)
+                self._log_attempt_error(
+                    profile,
+                    prompt_type,
+                    attempt,
+                    classify_provider_failure(exc),
+                    exc,
+                )
                 if attempt == MAX_RETRIES - 1:
                     break
 
