@@ -90,6 +90,17 @@ process restart.
 Effective non-secret model configuration is logged during startup. Prompts and
 credentials are never included in these operational events.
 
+### Health and GPT-OSS canary
+
+- `GET /health/` — liveness plus database and model dependency status (no auth).
+- `GET /health/canary` — low-frequency GPT-OSS probe (presence for 20B + 120B,
+  structured-contract check on the default model). Requires header
+  `X-Canary-Token: $MONITORING_CANARY_TOKEN`. Response and logs include
+  `error_class` / latency only — never prompts or credentials.
+
+External monitors live in the shared Uptime Kuma instance (separate ops repo / VPS).
+This app’s monitor contract is documented in [`docs/monitoring.md`](../../docs/monitoring.md).
+
 Run the live provider contract test with:
 
 ```bash
