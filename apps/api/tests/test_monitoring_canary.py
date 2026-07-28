@@ -147,20 +147,21 @@ def test_health_canary_requires_token(monkeypatch):
         "get_settings",
         lambda: Settings(monitoring_canary_token="secret-canary"),
     )
-    monkeypatch.setattr(
-        health.GroqSuggestor,
-        "run_gpt_oss_canary",
-        lambda self: SimpleNamespace(
-            status="ok",
-            as_dict=lambda: {"status": "ok", "latency_ms": 1, "models": {}, "checks": {}},
-        ),
+    # Mock the class so construction never touches the real Groq client
+    # (which requires GROQ_API_KEY). The route does GroqSuggestor().run_gpt_oss_canary.
+    mock_suggestor = MagicMock()
+    mock_suggestor.run_gpt_oss_canary.return_value = SimpleNamespace(
+        status="ok",
+        as_dict=lambda: {"status": "ok", "latency_ms": 1, "models": {}, "checks": {}},
     )
+    monkeypatch.setattr(health, "GroqSuggestor", MagicMock(return_value=mock_suggestor))
 
     client = TestClient(app)
     assert client.get("/health/canary").status_code == 401
     ok = client.get("/health/canary", headers={"X-Canary-Token": "secret-canary"})
     assert ok.status_code == 200
     assert ok.json()["status"] == "ok"
+    mock_suggestor.run_gpt_oss_canary.assert_called_once()
 
 
 def test_health_check_exposes_reason_and_safe_db_error(monkeypatch):
