@@ -138,34 +138,29 @@ def assert_queue_accepts_work(
     """
     Reject work when the shared checker queue cannot admit additional_jobs.
 
-    Prefers atomic reservation when a Redis client is provided; falls back to a
-    best-effort depth check for callers that only need a snapshot.
+    When admitting jobs (additional_jobs > 0), reservation is atomic via Redis
+    LLEN + outstanding reserved counters. Callers must release unused capacity.
     """
-    if redis_client is not None and additional_jobs > 0:
+    if additional_jobs > 0:
+        if redis_client is None:
+            # Fail closed rather than a racy len(queue) snapshot.
+            raise ServiceUnavailableError(
+                details="Domain check queue admission requires Redis.",
+                retry_after_seconds=settings.queue_saturation_retry_after_seconds,
+                retry_policy=default_retry_policy(settings.max_suggestions_retries),
+            )
         return reserve_queue_capacity(
             redis_client, settings, amount=additional_jobs
         )
 
     try:
-        depth = len(queue)
+        return len(queue)
     except Exception as exc:
         raise ServiceUnavailableError(
             details="Domain check queue is unreachable.",
             retry_after_seconds=settings.circuit_breaker_retry_after_seconds,
             retry_policy=default_retry_policy(settings.max_suggestions_retries),
         ) from exc
-
-    projected = depth + max(0, additional_jobs)
-    if projected > settings.rq_max_queue_depth:
-        raise ServiceUnavailableError(
-            details=(
-                f"Domain check queue is saturated (depth {depth}, "
-                f"limit {settings.rq_max_queue_depth})."
-            ),
-            retry_after_seconds=settings.queue_saturation_retry_after_seconds,
-            retry_policy=default_retry_policy(settings.max_suggestions_retries),
-        )
-    return depth
 
 
 def queue_age_seconds(redis_client: Redis, queue_name: str) -> float | None:

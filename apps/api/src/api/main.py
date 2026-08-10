@@ -1,13 +1,9 @@
 import asyncio
-from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
-from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 from tortoise.contrib.fastapi import register_tortoise
 
 from api import __title__, __description__, __version__
@@ -19,47 +15,51 @@ from api.suggestor.groq import GroqSuggestor
 _app: FastAPI | None = None
 
 
-def _wrap_streaming_body(body: Any, request: Request) -> Any:
-    """Release concurrency only after the streaming body is fully consumed."""
+class ConcurrencyReleaseMiddleware:
+    """
+    Pure ASGI middleware: hold per-identity concurrency for the full response.
 
-    if hasattr(body, "__aiter__"):
+    Unlike BaseHTTPMiddleware (which returns as soon as StreamingResponse headers
+    are built), awaiting the inner app here completes only after the response body
+    is fully sent, failed, or cancelled. Downstream exceptions also release the
+    slot exactly once so callers are not stuck until Redis TTL.
+    """
 
-        async def async_wrapped() -> AsyncIterator[Any]:
-            try:
-                async for chunk in body:
-                    yield chunk
-            finally:
-                release_request_concurrency(request)
+    def __init__(self, app):
+        self.app = app
 
-        return async_wrapped()
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-    def sync_wrapped() -> Iterator[Any]:
-        try:
-            for chunk in body:
-                yield chunk
-        finally:
+        request = Request(scope, receive)
+        released = False
+
+        def release_once() -> None:
+            nonlocal released
+            if released:
+                return
+            released = True
             release_request_concurrency(request)
 
-    return sync_wrapped()
+        async def send_wrapper(message):
+            await send(message)
+            # Last body chunk also covers client disconnect after partial stream.
+            if (
+                message["type"] == "http.response.body"
+                and not message.get("more_body", False)
+            ):
+                release_once()
 
-
-class ConcurrencyReleaseMiddleware(BaseHTTPMiddleware):
-    """
-    Release per-identity concurrency slots when the response finishes.
-
-    For StreamingResponse, the slot is held until the body iterator completes
-    (success, error, or client disconnect), not when headers are first sent.
-    """
-
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        if isinstance(response, StreamingResponse):
-            response.body_iterator = _wrap_streaming_body(
-                response.body_iterator, request
-            )
-            return response
-        release_request_concurrency(request)
-        return response
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except BaseException:
+            release_once()
+            raise
+        finally:
+            # Safety net when the app returns without a terminal body frame.
+            release_once()
 
 
 @asynccontextmanager

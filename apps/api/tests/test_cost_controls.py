@@ -104,21 +104,47 @@ def test_default_retry_policy_respects_configured_max_retries():
 
 
 def test_queue_saturation_returns_stable_503():
-    settings = Settings(rq_max_queue_depth=2, queue_saturation_retry_after_seconds=15)
+    settings = Settings(
+        rq_max_queue_depth=2,
+        queue_saturation_retry_after_seconds=15,
+        rq_queue_name="domain_checks",
+        rq_job_timeout_seconds=30,
+    )
+    redis_client = FakeRedis()
+    for i in range(2):
+        redis_client.lpush("rq:queue:domain_checks", f"job-{i}")
     queue = MagicMock()
-    queue.__len__.return_value = 2
     with pytest.raises(ServiceUnavailableError) as err:
-        assert_queue_accepts_work(queue, settings, additional_jobs=1)
+        assert_queue_accepts_work(
+            queue, settings, additional_jobs=1, redis_client=redis_client
+        )
     assert err.value.status_code == 503
     assert err.value.headers["Retry-After"] == "15"
     assert err.value.detail["retry_policy"] == POLICY_NAME
 
 
+def test_queue_admission_without_redis_fails_closed():
+    settings = Settings(rq_max_queue_depth=10, queue_saturation_retry_after_seconds=15)
+    with pytest.raises(ServiceUnavailableError) as err:
+        assert_queue_accepts_work(MagicMock(), settings, additional_jobs=1)
+    assert err.value.status_code == 503
+
+
 def test_queue_within_budget_allows_enqueue():
-    settings = Settings(rq_max_queue_depth=10)
-    queue = MagicMock()
-    queue.__len__.return_value = 3
-    assert assert_queue_accepts_work(queue, settings, additional_jobs=2) == 3
+    settings = Settings(
+        rq_max_queue_depth=10,
+        rq_queue_name="domain_checks",
+        rq_job_timeout_seconds=30,
+    )
+    redis_client = FakeRedis()
+    for i in range(3):
+        redis_client.lpush("rq:queue:domain_checks", f"job-{i}")
+    assert (
+        assert_queue_accepts_work(
+            MagicMock(), settings, additional_jobs=2, redis_client=redis_client
+        )
+        == 3
+    )
 
 
 def test_atomic_queue_reservation_prevents_concurrent_overshoot():
@@ -281,3 +307,120 @@ def test_documented_amplification_budgets():
     assert settings.concurrent_generations_anonymous == 1
     # Kill switch defaults off
     assert settings.emergency_circuit_breaker is False
+
+
+def test_concurrency_middleware_releases_on_downstream_exception():
+    """Unhandled app errors must free the slot (not wait for Redis TTL)."""
+    from api.main import ConcurrencyReleaseMiddleware
+
+    released = {"count": 0}
+
+    def fake_release(request):
+        released["count"] += 1
+
+    async def failing_app(scope, receive, send):
+        raise RuntimeError("handler crashed after acquiring slot")
+
+    middleware = ConcurrencyReleaseMiddleware(failing_app)
+
+    async def run():
+        with patch(
+            "api.main.release_request_concurrency", side_effect=fake_release
+        ):
+            scope = {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "path": "/v1/domain/stream",
+                "raw_path": b"/v1/domain/stream",
+                "query_string": b"",
+                "headers": [],
+                "client": ("127.0.0.1", 123),
+                "server": ("test", 80),
+                "scheme": "http",
+            }
+
+            async def receive():
+                return {"type": "http.disconnect"}
+
+            async def send(_message):
+                return None
+
+            with pytest.raises(RuntimeError, match="handler crashed"):
+                await middleware(scope, receive, send)
+
+    asyncio.run(run())
+    assert released["count"] == 1
+
+
+def test_concurrency_middleware_holds_until_stream_body_completes():
+    """Slot is not released when headers start; only after final body chunk."""
+    from api.main import ConcurrencyReleaseMiddleware
+
+    events: list[str] = []
+
+    def fake_release(_request):
+        events.append("release")
+
+    async def streaming_app(scope, receive, send):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [[b"content-type", b"text/event-stream"]],
+            }
+        )
+        events.append("headers")
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"event: start\n\n",
+                "more_body": True,
+            }
+        )
+        events.append("chunk")
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"event: complete\n\n",
+                "more_body": False,
+            }
+        )
+        events.append("done")
+
+    middleware = ConcurrencyReleaseMiddleware(streaming_app)
+
+    async def run():
+        with patch(
+            "api.main.release_request_concurrency", side_effect=fake_release
+        ):
+            scope = {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "path": "/v1/domain/stream",
+                "raw_path": b"/v1/domain/stream",
+                "query_string": b"",
+                "headers": [],
+                "client": ("127.0.0.1", 123),
+                "server": ("test", 80),
+                "scheme": "http",
+            }
+
+            async def receive():
+                return {"type": "http.disconnect"}
+
+            async def send(_message):
+                return None
+
+            await middleware(scope, receive, send)
+
+    asyncio.run(run())
+    # Release happens on the final body frame (and finally is a no-op after).
+    assert events == ["headers", "chunk", "release", "done"] or events.index(
+        "release"
+    ) > events.index("headers")
+    assert events.count("release") == 1
+    assert events.index("release") > events.index("headers")
