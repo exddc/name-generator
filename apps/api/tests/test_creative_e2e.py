@@ -2,11 +2,26 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+from starlette.requests import Request
+
 from api.config import Settings
 from api.models.api_models import RequestDomainSuggestion
+from api.quotas import QuotaResult
 from api.routes import domain as domain_routes
 from api.security import AuthenticatedUser
 from api.suggestor.groq import GroqSuggestor
+
+
+def _http_request() -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/domain/stream",
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+        }
+    )
 
 
 def test_creative_button_request_uses_120b_end_to_end(monkeypatch):
@@ -33,6 +48,11 @@ def test_creative_button_request_uses_120b_end_to_end(monkeypatch):
     settings = Settings(groq_creative_fallback_to_default=False)
     suggestor = GroqSuggestor(client=client, settings=settings)
     monkeypatch.setattr(domain_routes, "GroqSuggestor", lambda: suggestor)
+    monkeypatch.setattr(
+        domain_routes,
+        "_charge_generation_resources",
+        lambda *args, **kwargs: None,
+    )
 
     suggestion_record = SimpleNamespace(
         id=266,
@@ -55,12 +75,15 @@ def test_creative_button_request_uses_120b_end_to_end(monkeypatch):
 
     async def exercise_creative_request() -> str:
         response = await domain_routes.suggest_stream(
-            RequestDomainSuggestion(
+            http_request=_http_request(),
+            request=RequestDomainSuggestion(
                 description="A playful writing tool",
                 count=1,
                 creative=True,
             ),
-            AuthenticatedUser(user_id="e2e-user"),
+            auth_user=AuthenticatedUser(user_id="e2e-user"),
+            _=QuotaResult(limit=10, used=1, reset_after_seconds=60),
+            idempotency_key=None,
         )
         chunks = []
         async for chunk in response.body_iterator:

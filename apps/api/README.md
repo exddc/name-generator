@@ -107,6 +107,13 @@ Run the live provider contract test with:
 RUN_GROQ_CONTRACT_TEST=1 poetry run pytest tests/test_groq_contract.py -q
 ```
 
+## Cost controls and retries
+
+Generation, similar-names, and variants are bounded by burst/daily quotas,
+per-request budgets, queue backpressure, idempotency keys, and an emergency
+circuit breaker. The single client/server retry policy is
+`exponential_backoff_jitter`. See [`docs/cost-controls.md`](../../docs/cost-controls.md).
+
 ## Authentication
 
 All production endpoints are protected with a short-lived JWT that must be supplied via the standard `Authorization: Bearer <token>` header. The API validates the token using the following environment variables:

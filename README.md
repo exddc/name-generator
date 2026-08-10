@@ -11,6 +11,7 @@ Webpage for generating and checking domain names, composed of a Next.js frontend
 │   ├── web/        # Next.js frontend application
 │   └── worker/     # Python background worker for domain checks
 ├── docs/monitoring.md  # App monitor contract for shared Uptime Kuma (TW-267)
+├── docs/cost-controls.md  # Quotas, retries, backpressure, kill switch (TW-235)
 ├── docker-compose.yaml
 └── README.md
 ```

@@ -20,7 +20,13 @@ import {
 import { useSession } from '@/lib/auth-client';
 import { usePlausible } from 'next-plausible';
 import { toast } from '@/components/ui/sonner';
-import { apiFetch } from '@/lib/api-client';
+import {
+    apiFetch,
+    newIdempotencyKey,
+    parseRetryAfterSeconds,
+    retryDelaySeconds,
+    sleep,
+} from '@/lib/api-client';
 
 // Components
 import DomainSection from './DomainSection';
@@ -234,9 +240,23 @@ export default function DomainGenerator({
         });
     }, []);
 
-    const handleRetry = () => {
+    const handleRetry = async () => {
+        const previous = lastError;
         setLastError(null);
         setCanRetry(false);
+
+        const waitSeconds =
+            previous?.retry_after_seconds ??
+            retryDelaySeconds(
+                0,
+                previous?.retry_base_delay_seconds ?? 0.5,
+                previous?.retry_max_delay_seconds ?? 8
+            );
+        if (waitSeconds > 0) {
+            setLoadingText('Waiting to retry...');
+            setIsLoading(true);
+            await sleep(waitSeconds * 1000);
+        }
 
         const controller = new AbortController();
         abortControllerRef.current = controller;
@@ -311,10 +331,12 @@ export default function DomainGenerator({
                 }
             }
 
+            const idempotencyKey = newIdempotencyKey();
             const response = await apiFetch(DOMAIN_SUGGESTION_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Idempotency-Key': idempotencyKey,
                 },
                 body: JSON.stringify(requestBody),
                 signal: controller.signal,
@@ -332,6 +354,20 @@ export default function DomainGenerator({
                         message:
                             'Failed to connect to the server. Please check your connection and try again.',
                         retry_allowed: true,
+                    };
+                }
+                if (response.status === 429 || response.status === 503) {
+                    const retryAfter = parseRetryAfterSeconds(
+                        response,
+                        errorData
+                    );
+                    errorData = {
+                        ...errorData,
+                        retry_after_seconds:
+                            errorData.retry_after_seconds ?? retryAfter,
+                        retry_policy:
+                            errorData.retry_policy ??
+                            'exponential_backoff_jitter',
                     };
                 }
                 handleApiError(errorData);

@@ -2,16 +2,28 @@ import asyncio
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from tortoise.contrib.fastapi import register_tortoise
 
 from api import __title__, __description__, __version__
 from api.routes import domain, health, user, metrics
 from api.config import get_settings
+from api.quotas import release_request_concurrency
 from api.suggestor.groq import GroqSuggestor
 
 _app: FastAPI | None = None
+
+
+class ConcurrencyReleaseMiddleware(BaseHTTPMiddleware):
+    """Always release per-identity concurrency slots when the response finishes."""
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await call_next(request)
+        finally:
+            release_request_concurrency(request)
 
 
 @asynccontextmanager
@@ -45,6 +57,7 @@ def init_fastapi() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(ConcurrencyReleaseMiddleware)
 
     # Initialize TortoiseORM
     register_tortoise(
