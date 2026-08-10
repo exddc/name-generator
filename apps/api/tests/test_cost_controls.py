@@ -418,9 +418,5 @@ def test_concurrency_middleware_holds_until_stream_body_completes():
             await middleware(scope, receive, send)
 
     asyncio.run(run())
-    # Release happens on the final body frame (and finally is a no-op after).
-    assert events == ["headers", "chunk", "release", "done"] or events.index(
-        "release"
-    ) > events.index("headers")
-    assert events.count("release") == 1
-    assert events.index("release") > events.index("headers")
+    # Must release only on the terminal body frame (more_body=False), not earlier.
+    assert events == ["headers", "chunk", "release", "done"]
