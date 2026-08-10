@@ -1,9 +1,12 @@
 import asyncio
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from tortoise.contrib.fastapi import register_tortoise
 
@@ -16,14 +19,47 @@ from api.suggestor.groq import GroqSuggestor
 _app: FastAPI | None = None
 
 
-class ConcurrencyReleaseMiddleware(BaseHTTPMiddleware):
-    """Always release per-identity concurrency slots when the response finishes."""
+def _wrap_streaming_body(body: Any, request: Request) -> Any:
+    """Release concurrency only after the streaming body is fully consumed."""
 
-    async def dispatch(self, request: Request, call_next):
+    if hasattr(body, "__aiter__"):
+
+        async def async_wrapped() -> AsyncIterator[Any]:
+            try:
+                async for chunk in body:
+                    yield chunk
+            finally:
+                release_request_concurrency(request)
+
+        return async_wrapped()
+
+    def sync_wrapped() -> Iterator[Any]:
         try:
-            return await call_next(request)
+            for chunk in body:
+                yield chunk
         finally:
             release_request_concurrency(request)
+
+    return sync_wrapped()
+
+
+class ConcurrencyReleaseMiddleware(BaseHTTPMiddleware):
+    """
+    Release per-identity concurrency slots when the response finishes.
+
+    For StreamingResponse, the slot is held until the body iterator completes
+    (success, error, or client disconnect), not when headers are first sent.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if isinstance(response, StreamingResponse):
+            response.body_iterator = _wrap_streaming_body(
+                response.body_iterator, request
+            )
+            return response
+        release_request_concurrency(request)
+        return response
 
 
 @asynccontextmanager

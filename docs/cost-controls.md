@@ -51,7 +51,7 @@ Daily window: `GENERATION_QUOTA_DAILY_WINDOW_SECONDS` (default 86400s).
 
 | Control | Env | Default | Effect |
 | --- | --- | --- | --- |
-| Queue depth | `RQ_MAX_QUEUE_DEPTH` | 500 | Projected depth over limit → **503** (no enqueue) |
+| Queue depth | `RQ_MAX_QUEUE_DEPTH` | 500 | Atomic reservation vs LLEN+reserved; over limit → **503** |
 | Queue age | `RQ_MAX_QUEUE_AGE_SECONDS` | 60 | Oldest job too old → **503** |
 | Kill switch | `EMERGENCY_CIRCUIT_BREAKER` | false | All generation deps return **503** |
 

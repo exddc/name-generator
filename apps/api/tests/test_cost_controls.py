@@ -2,12 +2,16 @@
 
 import asyncio
 import random
-from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from api.backpressure import assert_circuit_closed, assert_queue_accepts_work
+from api.backpressure import (
+    assert_circuit_closed,
+    assert_queue_accepts_work,
+    release_queue_capacity,
+    reserve_queue_capacity,
+)
 from api.config import Settings
 from api.exceptions import RateLimitedError, ServiceUnavailableError
 from api.idempotency import (
@@ -17,18 +21,55 @@ from api.idempotency import (
     idempotency_redis_key,
 )
 from api.retry_policy import POLICY_NAME, RetryPolicy, default_retry_policy
-from api.security import AuthenticatedUser
 
 
 class FakeRedis:
     def __init__(self):
         self.store = {}
+        self.lists = {}
 
-    def eval(self, script, key_count, key, initial, ttl):
+    def eval(self, script, key_count, *args):
+        script_text = script if isinstance(script, str) else script.decode()
+        # Idempotency claim
+        if "in_progress" in script_text or (
+            key_count == 1 and len(args) >= 3 and "SET" in script_text and "EX" in script_text
+            and "LLEN" not in script_text and "INCRBY" not in script_text
+        ):
+            key, initial, _ttl = args[0], args[1], args[2]
+            if key in self.store:
+                return [0, self.store[key]]
+            self.store[key] = initial
+            return [1, initial]
+
+        # Queue capacity reserve
+        if "LLEN" in script_text and "INCRBY" in script_text:
+            queue_key, reserved_key = args[0], args[1]
+            amount, limit, _ttl = int(args[2]), int(args[3]), int(args[4])
+            depth = len(self.lists.get(queue_key, []))
+            reserved = int(self.store.get(reserved_key, 0) or 0)
+            if depth + reserved + amount > limit:
+                return [0, depth, reserved]
+            new_reserved = reserved + amount
+            self.store[reserved_key] = new_reserved
+            return [1, depth, new_reserved]
+
+        # Queue capacity release
+        if "DECRBY" in script_text or (
+            "DEL" in script_text and key_count == 1 and len(args) == 2
+        ):
+            reserved_key, amount = args[0], int(args[1])
+            reserved = int(self.store.get(reserved_key, 0) or 0)
+            if reserved <= amount:
+                self.store.pop(reserved_key, None)
+                return 0
+            self.store[reserved_key] = reserved - amount
+            return self.store[reserved_key]
+
+        key = args[0]
         if key in self.store:
             return [0, self.store[key]]
-        self.store[key] = initial
-        return [1, initial]
+        self.store[key] = args[1] if len(args) > 1 else "{}"
+        return [1, self.store[key]]
 
     def set(self, key, value, ex=None):
         self.store[key] = value
@@ -38,6 +79,11 @@ class FakeRedis:
 
     def delete(self, key):
         self.store.pop(key, None)
+
+    def lpush(self, key, *values):
+        self.lists.setdefault(key, [])
+        for value in values:
+            self.lists[key].insert(0, value)
 
 
 def test_retry_policy_uses_full_jitter_and_caps_worst_case_model_calls():
@@ -73,6 +119,51 @@ def test_queue_within_budget_allows_enqueue():
     queue = MagicMock()
     queue.__len__.return_value = 3
     assert assert_queue_accepts_work(queue, settings, additional_jobs=2) == 3
+
+
+def test_atomic_queue_reservation_prevents_concurrent_overshoot():
+    redis_client = FakeRedis()
+    settings = Settings(
+        rq_max_queue_depth=5,
+        rq_queue_name="domain_checks",
+        rq_job_timeout_seconds=30,
+        queue_saturation_retry_after_seconds=15,
+    )
+    # Three jobs already queued
+    for i in range(3):
+        redis_client.lpush("rq:queue:domain_checks", f"job-{i}")
+
+    depth = reserve_queue_capacity(redis_client, settings, amount=2)
+    assert depth == 3
+    # Another reservation of 1 would be depth(3)+reserved(2)+1 = 6 > 5
+    with pytest.raises(ServiceUnavailableError) as err:
+        reserve_queue_capacity(redis_client, settings, amount=1)
+    assert err.value.status_code == 503
+
+    release_queue_capacity(redis_client, settings, amount=2)
+    # After release, 2 slots free again
+    reserve_queue_capacity(redis_client, settings, amount=2)
+
+
+def test_cancel_jobs_stops_started_and_cancels_queued():
+    from rq.job import JobStatus
+    from api.routes.domain import _cancel_jobs
+
+    started = MagicMock()
+    started.get_status.return_value = JobStatus.STARTED
+    started.id = "started-1"
+
+    queued = MagicMock()
+    queued.get_status.return_value = JobStatus.QUEUED
+    queued.id = "queued-1"
+
+    with patch("rq.command.send_stop_job_command") as send_stop:
+        _cancel_jobs([started, queued])
+        send_stop.assert_called_once()
+        assert send_stop.call_args[0][1] == "started-1"
+        queued.cancel.assert_called_once()
+        queued.delete.assert_called_once()
+        started.delete.assert_not_called()
 
 
 def test_circuit_breaker_kill_switch():

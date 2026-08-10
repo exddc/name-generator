@@ -14,8 +14,9 @@ from rq.job import Job
 
 from api.backpressure import (
     assert_circuit_closed,
-    assert_queue_accepts_work,
     assert_queue_age_within_budget,
+    release_queue_capacity,
+    reserve_queue_capacity,
 )
 from api.config import get_settings
 from api.idempotency import (
@@ -841,6 +842,7 @@ async def suggest_stream(
         domains_to_store: list[tuple[str, DomainStatus]] = []
         first_suggestion_sent = False
         obsolete = False
+        idem_completed = False
         
         if request.personalized and user_preferences and user_preferences.has_preferences():
             prompt_type = PromptType.PERSONALIZED
@@ -854,39 +856,34 @@ async def suggest_stream(
         suggestor = GroqSuggestor()
         
         try:
-            suggestion_db = await SuggestionDB.create(
-                description=request.description,
-                count=requested_count,
-                model=selected_profile.model,
-                prompt=prompt_type.value,
-                user_id=request.user_id,
-            )
-        except Exception as e:
-            print(f"[Stream] Failed to create suggestion record: {e}")
-            if idem_claim is not None and idem_claim.is_new:
-                abandon_idempotency(quota_client, idem_claim.key)
-            error_response = create_error_response(
-                ErrorCode.INTERNAL_ERROR,
-                details="Failed to initialize domain generation.",
-                retry_allowed=True
-            )
-            yield _format_sse("error", error_response.model_dump())
-            cancelled.set()
-            watch.cancel()
-            await asyncio.gather(watch, return_exceptions=True)
-            return
+            try:
+                suggestion_db = await SuggestionDB.create(
+                    description=request.description,
+                    count=requested_count,
+                    model=selected_profile.model,
+                    prompt=prompt_type.value,
+                    user_id=request.user_id,
+                )
+            except Exception as e:
+                print(f"[Stream] Failed to create suggestion record: {e}")
+                error_response = create_error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    details="Failed to initialize domain generation.",
+                    retry_allowed=True
+                )
+                yield _format_sse("error", error_response.model_dump())
+                return
 
-        yield _format_sse(
-            "start",
-            {
-                "requested_count": requested_count,
-                "max_retries": max_retries,
-                "requested_model": selected_profile.model,
-                "retry_policy": policy.name,
-            },
-        )
+            yield _format_sse(
+                "start",
+                {
+                    "requested_count": requested_count,
+                    "max_retries": max_retries,
+                    "requested_model": selected_profile.model,
+                    "retry_policy": policy.name,
+                },
+            )
         
-        try:
             while retries < max_retries:
                 if cancelled.is_set():
                     obsolete = True
@@ -1128,8 +1125,6 @@ async def suggest_stream(
 
             if obsolete:
                 metrics.add_error("client_cancelled")
-                if idem_claim is not None and idem_claim.is_new:
-                    abandon_idempotency(quota_client, idem_claim.key)
                 yield _format_sse(
                     "error",
                     create_error_response(
@@ -1163,13 +1158,12 @@ async def suggest_stream(
                     complete_payload,
                     settings.idempotency_ttl_seconds,
                 )
+            idem_completed = True
 
             yield _format_sse("complete", complete_payload)
             
         except Exception as e:
             print(f"[Stream] Unexpected error: {e}")
-            if idem_claim is not None and idem_claim.is_new:
-                abandon_idempotency(quota_client, idem_claim.key)
             error_response = create_error_response(
                 ErrorCode.INTERNAL_ERROR,
                 details="An unexpected error occurred. Please try again.",
@@ -1177,6 +1171,14 @@ async def suggest_stream(
             )
             yield _format_sse("error", error_response.model_dump())
         finally:
+            # Every non-complete exit abandons a newly claimed key so retries
+            # are not stuck in_progress for the full TTL.
+            if (
+                not idem_completed
+                and idem_claim is not None
+                and idem_claim.is_new
+            ):
+                abandon_idempotency(quota_client, idem_claim.key)
             cancelled.set()
             watch.cancel()
             await asyncio.gather(watch, return_exceptions=True)
@@ -1532,11 +1534,39 @@ async def suggest_similar_stream(
 
 
 def _cancel_jobs(jobs: List[Job]) -> None:
+    """
+    Stop obsolete work: cancel queued jobs; signal workers to stop started ones.
+
+    RQ's Job.cancel() only prevents not-yet-started work. Started jobs need
+    send_stop_job_command. Metadata for started jobs is left in place until
+    the worker acknowledges the stop so the signal can be delivered.
+    """
+    from rq.command import send_stop_job_command
+    from rq.job import JobStatus
+
     for job in jobs:
         try:
+            job.refresh()
+            status = job.get_status(refresh=False)
+        except Exception:
+            status = None
+
+        try:
+            if status == JobStatus.STARTED:
+                send_stop_job_command(redis_conn, job.id)
+                continue
             job.cancel()
         except Exception:
-            pass
+            try:
+                if status == JobStatus.STARTED:
+                    send_stop_job_command(redis_conn, job.id)
+                else:
+                    job.cancel()
+            except Exception:
+                pass
+            continue
+
+        # Safe to drop Redis records only for non-running jobs.
         try:
             job.delete()
         except Exception:
@@ -1564,7 +1594,6 @@ async def enqueue_and_wait(
 
     assert_circuit_closed(settings)
     assert_queue_age_within_budget(redis_conn, settings)
-    assert_queue_accepts_work(queue, settings, additional_jobs=len(domains))
 
     # Filter out invalid domains before sending to worker
     valid_domains, invalid_domains = filter_valid_domains(domains)
@@ -1580,6 +1609,14 @@ async def enqueue_and_wait(
     if not valid_domains:
         return results
 
+    # Atomically reserve capacity for the whole valid batch before any enqueue.
+    reserved_remaining = len(valid_domains)
+    depth_at_reserve = reserve_queue_capacity(
+        redis_conn, settings, amount=reserved_remaining
+    )
+    if metrics:
+        metrics.set_queue_depth(depth_at_reserve)
+
     if user is not None:
         try:
             consume_resource_quota(
@@ -1590,6 +1627,7 @@ async def enqueue_and_wait(
                 settings=settings,
             )
         except RateLimitedError:
+            release_queue_capacity(redis_conn, settings, amount=reserved_remaining)
             raise
 
     jobs: List[Job] = []
@@ -1610,6 +1648,9 @@ async def enqueue_and_wait(
                     )
                     jobs.append(job)
                     enqueued = True
+                    # Job is now counted in LLEN; free one reservation slot.
+                    release_queue_capacity(redis_conn, settings, amount=1)
+                    reserved_remaining = max(0, reserved_remaining - 1)
                     break
                 except RedisConnectionError as exc:
                     print(
@@ -1630,6 +1671,8 @@ async def enqueue_and_wait(
 
             if not enqueued:
                 print(f"[API] Failed to enqueue check for {domain} after retries")
+                release_queue_capacity(redis_conn, settings, amount=1)
+                reserved_remaining = max(0, reserved_remaining - 1)
                 results.append({"domain": domain, "status": "unknown"})
 
         # Record queue snapshot AFTER all domains are enqueued
@@ -1697,6 +1740,10 @@ async def enqueue_and_wait(
     except RequestCancelled:
         _cancel_jobs(jobs)
         raise
+    finally:
+        if reserved_remaining > 0:
+            release_queue_capacity(redis_conn, settings, amount=reserved_remaining)
+            reserved_remaining = 0
 
 
 async def _update_worker_metrics(updates: dict[str, dict]):

@@ -91,6 +91,9 @@ export default function DomainGenerator({
     );
 
     const abortControllerRef = useRef<AbortController | null>(null);
+    // Reused across retries for the same user-initiated generation so the API
+    // can dedupe duplicate client retries without a second LLM/worker fan-out.
+    const idempotencyKeyRef = useRef<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     // Collapsible state for sections
@@ -267,7 +270,9 @@ export default function DomainGenerator({
         setFirstResponseTime(null);
         setLoadingText('Retrying...');
 
-        fetchSuggestionsInternal(controller, false);
+        fetchSuggestionsInternal(controller, false, false, {
+            reuseIdempotencyKey: true,
+        });
     };
 
     const buildPreferences = (): UserPreferencesInput | undefined => {
@@ -302,7 +307,8 @@ export default function DomainGenerator({
     const fetchSuggestionsInternal = async (
         controller: AbortController,
         creative: boolean = false,
-        usePersonalized: boolean = false
+        usePersonalized: boolean = false,
+        options: { reuseIdempotencyKey?: boolean } = {}
     ) => {
         try {
             const requestBody: {
@@ -331,7 +337,13 @@ export default function DomainGenerator({
                 }
             }
 
-            const idempotencyKey = newIdempotencyKey();
+            if (
+                !options.reuseIdempotencyKey ||
+                !idempotencyKeyRef.current
+            ) {
+                idempotencyKeyRef.current = newIdempotencyKey();
+            }
+            const idempotencyKey = idempotencyKeyRef.current;
             const response = await apiFetch(DOMAIN_SUGGESTION_URL, {
                 method: 'POST',
                 headers: {
@@ -455,6 +467,17 @@ export default function DomainGenerator({
                                     details: payload.details,
                                     retry_allowed:
                                         payload.retry_allowed ?? true,
+                                    retry_after_seconds:
+                                        payload.retry_after_seconds,
+                                    retry_policy: payload.retry_policy,
+                                    retry_base_delay_seconds:
+                                        payload.retry_base_delay_seconds,
+                                    retry_max_delay_seconds:
+                                        payload.retry_max_delay_seconds,
+                                    retry_max_attempts:
+                                        payload.retry_max_attempts,
+                                    limit: payload.limit,
+                                    remaining: payload.remaining,
                                 };
                                 handleApiError(errorPayload);
                             } else {
@@ -506,9 +529,15 @@ export default function DomainGenerator({
     const fetchSuggestions = async (
         controller: AbortController,
         creative: boolean = false,
-        usePersonalized: boolean = false
+        usePersonalized: boolean = false,
+        options: { reuseIdempotencyKey?: boolean } = {}
     ) => {
-        await fetchSuggestionsInternal(controller, creative, usePersonalized);
+        await fetchSuggestionsInternal(
+            controller,
+            creative,
+            usePersonalized,
+            options
+        );
     };
 
     const handleSubmit = async (e: React.FormEvent) => {

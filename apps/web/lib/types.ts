@@ -64,6 +64,13 @@ export type StreamMessage = {
     message?: string;
     details?: string | null;
     retry_allowed?: boolean;
+    retry_after_seconds?: number | null;
+    retry_policy?: string | null;
+    retry_base_delay_seconds?: number | null;
+    retry_max_delay_seconds?: number | null;
+    retry_max_attempts?: number | null;
+    limit?: number | null;
+    remaining?: number | null;
 };
 
 export type RatingRequestBody = {
