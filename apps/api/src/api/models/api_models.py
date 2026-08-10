@@ -32,6 +32,15 @@ class ErrorResponse(BaseModel):
     message: str
     details: str | None = None
     retry_allowed: bool = False
+    # Structured retry guidance (429 / saturated 503). Clients must honour
+    # Retry-After when present and apply exponential_backoff_jitter otherwise.
+    retry_after_seconds: int | None = None
+    retry_policy: str | None = None
+    retry_base_delay_seconds: float | None = None
+    retry_max_delay_seconds: float | None = None
+    retry_max_attempts: int | None = None
+    limit: int | None = None
+    remaining: int | None = None
 
 
 # Enums

@@ -20,7 +20,13 @@ import {
 import { useSession } from '@/lib/auth-client';
 import { usePlausible } from 'next-plausible';
 import { toast } from '@/components/ui/sonner';
-import { apiFetch } from '@/lib/api-client';
+import {
+    apiFetch,
+    newIdempotencyKey,
+    parseRetryAfterSeconds,
+    retryDelaySeconds,
+    sleep,
+} from '@/lib/api-client';
 
 // Components
 import DomainSection from './DomainSection';
@@ -85,6 +91,9 @@ export default function DomainGenerator({
     );
 
     const abortControllerRef = useRef<AbortController | null>(null);
+    // Reused across retries for the same user-initiated generation so the API
+    // can dedupe duplicate client retries without a second LLM/worker fan-out.
+    const idempotencyKeyRef = useRef<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     // Collapsible state for sections
@@ -234,9 +243,23 @@ export default function DomainGenerator({
         });
     }, []);
 
-    const handleRetry = () => {
+    const handleRetry = async () => {
+        const previous = lastError;
         setLastError(null);
         setCanRetry(false);
+
+        const waitSeconds =
+            previous?.retry_after_seconds ??
+            retryDelaySeconds(
+                0,
+                previous?.retry_base_delay_seconds ?? 0.5,
+                previous?.retry_max_delay_seconds ?? 8
+            );
+        if (waitSeconds > 0) {
+            setLoadingText('Waiting to retry...');
+            setIsLoading(true);
+            await sleep(waitSeconds * 1000);
+        }
 
         const controller = new AbortController();
         abortControllerRef.current = controller;
@@ -247,7 +270,9 @@ export default function DomainGenerator({
         setFirstResponseTime(null);
         setLoadingText('Retrying...');
 
-        fetchSuggestionsInternal(controller, false);
+        fetchSuggestionsInternal(controller, false, false, {
+            reuseIdempotencyKey: true,
+        });
     };
 
     const buildPreferences = (): UserPreferencesInput | undefined => {
@@ -282,7 +307,8 @@ export default function DomainGenerator({
     const fetchSuggestionsInternal = async (
         controller: AbortController,
         creative: boolean = false,
-        usePersonalized: boolean = false
+        usePersonalized: boolean = false,
+        options: { reuseIdempotencyKey?: boolean } = {}
     ) => {
         try {
             const requestBody: {
@@ -311,10 +337,18 @@ export default function DomainGenerator({
                 }
             }
 
+            if (
+                !options.reuseIdempotencyKey ||
+                !idempotencyKeyRef.current
+            ) {
+                idempotencyKeyRef.current = newIdempotencyKey();
+            }
+            const idempotencyKey = idempotencyKeyRef.current;
             const response = await apiFetch(DOMAIN_SUGGESTION_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Idempotency-Key': idempotencyKey,
                 },
                 body: JSON.stringify(requestBody),
                 signal: controller.signal,
@@ -332,6 +366,20 @@ export default function DomainGenerator({
                         message:
                             'Failed to connect to the server. Please check your connection and try again.',
                         retry_allowed: true,
+                    };
+                }
+                if (response.status === 429 || response.status === 503) {
+                    const retryAfter = parseRetryAfterSeconds(
+                        response,
+                        errorData
+                    );
+                    errorData = {
+                        ...errorData,
+                        retry_after_seconds:
+                            errorData.retry_after_seconds ?? retryAfter,
+                        retry_policy:
+                            errorData.retry_policy ??
+                            'exponential_backoff_jitter',
                     };
                 }
                 handleApiError(errorData);
@@ -419,6 +467,17 @@ export default function DomainGenerator({
                                     details: payload.details,
                                     retry_allowed:
                                         payload.retry_allowed ?? true,
+                                    retry_after_seconds:
+                                        payload.retry_after_seconds,
+                                    retry_policy: payload.retry_policy,
+                                    retry_base_delay_seconds:
+                                        payload.retry_base_delay_seconds,
+                                    retry_max_delay_seconds:
+                                        payload.retry_max_delay_seconds,
+                                    retry_max_attempts:
+                                        payload.retry_max_attempts,
+                                    limit: payload.limit,
+                                    remaining: payload.remaining,
                                 };
                                 handleApiError(errorPayload);
                             } else {
@@ -470,9 +529,15 @@ export default function DomainGenerator({
     const fetchSuggestions = async (
         controller: AbortController,
         creative: boolean = false,
-        usePersonalized: boolean = false
+        usePersonalized: boolean = false,
+        options: { reuseIdempotencyKey?: boolean } = {}
     ) => {
-        await fetchSuggestionsInternal(controller, creative, usePersonalized);
+        await fetchSuggestionsInternal(
+            controller,
+            creative,
+            usePersonalized,
+            options
+        );
     };
 
     const handleSubmit = async (e: React.FormEvent) => {

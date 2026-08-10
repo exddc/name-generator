@@ -2,6 +2,7 @@
 
 from fastapi import HTTPException
 from api.models.api_models import ErrorCode, ErrorResponse
+from api.retry_policy import RetryPolicy
 
 
 # User-friendly error messages
@@ -18,6 +19,33 @@ ERROR_MESSAGES = {
 }
 
 
+def _error_body(
+    code: ErrorCode,
+    message: str,
+    details: str | None,
+    retry_allowed: bool,
+    *,
+    retry_after_seconds: int | None = None,
+    retry_policy: RetryPolicy | None = None,
+    limit: int | None = None,
+    remaining: int | None = None,
+) -> dict:
+    guidance = retry_policy.client_guidance() if retry_policy is not None else {}
+    return ErrorResponse(
+        code=code,
+        message=message,
+        details=details,
+        retry_allowed=retry_allowed,
+        retry_after_seconds=retry_after_seconds,
+        retry_policy=guidance.get("retry_policy") if guidance else None,
+        retry_base_delay_seconds=guidance.get("retry_base_delay_seconds"),
+        retry_max_delay_seconds=guidance.get("retry_max_delay_seconds"),
+        retry_max_attempts=guidance.get("retry_max_attempts"),
+        limit=limit,
+        remaining=remaining,
+    ).model_dump(exclude_none=True)
+
+
 class DomainGeneratorException(HTTPException):
     """Base exception for domain generator errors."""
     
@@ -29,33 +57,58 @@ class DomainGeneratorException(HTTPException):
         retry_allowed: bool = False,
         status_code: int = 500,
         headers: dict[str, str] | None = None,
+        retry_after_seconds: int | None = None,
+        retry_policy: RetryPolicy | None = None,
+        limit: int | None = None,
+        remaining: int | None = None,
     ):
         self.code = code
         self.user_message = message or ERROR_MESSAGES.get(code, "An unexpected error occurred.")
         self.details = details
         self.retry_allowed = retry_allowed
+        self.retry_after_seconds = retry_after_seconds
+        self.retry_policy = retry_policy
+        self.limit = limit
+        self.remaining = remaining
         
         super().__init__(
             status_code=status_code,
-            detail=ErrorResponse(
-                code=code,
-                message=self.user_message,
-                details=details,
-                retry_allowed=retry_allowed,
-            ).model_dump(),
+            detail=_error_body(
+                code,
+                self.user_message,
+                details,
+                retry_allowed,
+                retry_after_seconds=retry_after_seconds,
+                retry_policy=retry_policy,
+                limit=limit,
+                remaining=remaining,
+            ),
             headers=headers,
         )
 
 
 class ServiceUnavailableError(DomainGeneratorException):
-    """Raised when the service (LLM, Redis, etc.) is unavailable."""
+    """Raised when the service (LLM, Redis, queue) is unavailable or saturated."""
     
-    def __init__(self, details: str | None = None):
+    def __init__(
+        self,
+        details: str | None = None,
+        retry_after_seconds: int | None = None,
+        retry_policy: RetryPolicy | None = None,
+    ):
+        headers = (
+            {"Retry-After": str(max(1, retry_after_seconds))}
+            if retry_after_seconds is not None
+            else None
+        )
         super().__init__(
             code=ErrorCode.SERVICE_UNAVAILABLE,
             details=details,
             retry_allowed=True,
             status_code=503,
+            headers=headers,
+            retry_after_seconds=retry_after_seconds,
+            retry_policy=retry_policy,
         )
 
 
@@ -75,7 +128,12 @@ class RateLimitedError(DomainGeneratorException):
     """Raised when the user or service is rate limited."""
     
     def __init__(
-        self, details: str | None = None, retry_after_seconds: int | None = None
+        self,
+        details: str | None = None,
+        retry_after_seconds: int | None = None,
+        retry_policy: RetryPolicy | None = None,
+        limit: int | None = None,
+        remaining: int | None = None,
     ):
         headers = (
             {"Retry-After": str(max(1, retry_after_seconds))}
@@ -88,6 +146,10 @@ class RateLimitedError(DomainGeneratorException):
             retry_allowed=True,
             status_code=429,
             headers=headers,
+            retry_after_seconds=retry_after_seconds,
+            retry_policy=retry_policy,
+            limit=limit,
+            remaining=remaining,
         )
 
 

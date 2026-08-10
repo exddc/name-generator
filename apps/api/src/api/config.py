@@ -151,19 +151,153 @@ class Settings(BaseSettings):
 
     # Suggestions Settings
     max_suggestions_retries: int = int(os.environ.get("MAX_SUGGESTIONS_RETRIES", "5"))
-    """Maximum attempts to fetch enough available suggestions"""
+    """Maximum model-call attempts per generation request (worst-case LLM fan-out)."""
 
+    # Burst window (short) for anonymous/authenticated abuse spikes.
+    generation_quota_burst_window_seconds: int = int(
+        os.environ.get(
+            "GENERATION_QUOTA_BURST_WINDOW_SECONDS",
+            os.environ.get("GENERATION_QUOTA_WINDOW_SECONDS", "60"),
+        )
+    )
+    generation_quota_anonymous_burst: int = int(
+        os.environ.get(
+            "GENERATION_QUOTA_ANONYMOUS_BURST",
+            os.environ.get("GENERATION_QUOTA_ANONYMOUS", "5"),
+        )
+    )
+    generation_quota_authenticated_burst: int = int(
+        os.environ.get(
+            "GENERATION_QUOTA_AUTHENTICATED_BURST",
+            os.environ.get("GENERATION_QUOTA_AUTHENTICATED", "50"),
+        )
+    )
+    generation_quota_anonymous_network_burst: int = int(
+        os.environ.get(
+            "GENERATION_QUOTA_ANONYMOUS_NETWORK_BURST",
+            os.environ.get("GENERATION_QUOTA_ANONYMOUS_NETWORK", "20"),
+        )
+    )
+
+    # Daily window for sustained cost bounds.
+    generation_quota_daily_window_seconds: int = int(
+        os.environ.get("GENERATION_QUOTA_DAILY_WINDOW_SECONDS", "86400")
+    )
+    generation_quota_anonymous_daily: int = int(
+        os.environ.get("GENERATION_QUOTA_ANONYMOUS_DAILY", "20")
+    )
+    generation_quota_authenticated_daily: int = int(
+        os.environ.get("GENERATION_QUOTA_AUTHENTICATED_DAILY", "200")
+    )
+    generation_quota_anonymous_network_daily: int = int(
+        os.environ.get("GENERATION_QUOTA_ANONYMOUS_NETWORK_DAILY", "100")
+    )
+
+    # Cumulative resource budgets (burst + daily) charged across generation,
+    # similar, and variants paths.
+    candidates_quota_anonymous_burst: int = int(
+        os.environ.get("CANDIDATES_QUOTA_ANONYMOUS_BURST", "100")
+    )
+    candidates_quota_authenticated_burst: int = int(
+        os.environ.get("CANDIDATES_QUOTA_AUTHENTICATED_BURST", "400")
+    )
+    candidates_quota_anonymous_daily: int = int(
+        os.environ.get("CANDIDATES_QUOTA_ANONYMOUS_DAILY", "400")
+    )
+    candidates_quota_authenticated_daily: int = int(
+        os.environ.get("CANDIDATES_QUOTA_AUTHENTICATED_DAILY", "4000")
+    )
+    tokens_quota_anonymous_burst: int = int(
+        os.environ.get("TOKENS_QUOTA_ANONYMOUS_BURST", "50000")
+    )
+    tokens_quota_authenticated_burst: int = int(
+        os.environ.get("TOKENS_QUOTA_AUTHENTICATED_BURST", "200000")
+    )
+    tokens_quota_anonymous_daily: int = int(
+        os.environ.get("TOKENS_QUOTA_ANONYMOUS_DAILY", "200000")
+    )
+    tokens_quota_authenticated_daily: int = int(
+        os.environ.get("TOKENS_QUOTA_AUTHENTICATED_DAILY", "2000000")
+    )
+    checker_jobs_quota_anonymous_burst: int = int(
+        os.environ.get("CHECKER_JOBS_QUOTA_ANONYMOUS_BURST", "100")
+    )
+    checker_jobs_quota_authenticated_burst: int = int(
+        os.environ.get("CHECKER_JOBS_QUOTA_AUTHENTICATED_BURST", "400")
+    )
+    checker_jobs_quota_anonymous_daily: int = int(
+        os.environ.get("CHECKER_JOBS_QUOTA_ANONYMOUS_DAILY", "400")
+    )
+    checker_jobs_quota_authenticated_daily: int = int(
+        os.environ.get("CHECKER_JOBS_QUOTA_AUTHENTICATED_DAILY", "4000")
+    )
+
+    # Concurrency and wall-clock budgets per identity.
+    concurrent_generations_anonymous: int = int(
+        os.environ.get("CONCURRENT_GENERATIONS_ANONYMOUS", "1")
+    )
+    concurrent_generations_authenticated: int = int(
+        os.environ.get("CONCURRENT_GENERATIONS_AUTHENTICATED", "3")
+    )
+    request_wall_time_seconds: float = float(
+        os.environ.get("REQUEST_WALL_TIME_SECONDS", "60")
+    )
+    max_candidates_per_request: int = int(
+        os.environ.get("MAX_CANDIDATES_PER_REQUEST", "100")
+    )
+    max_checker_jobs_per_request: int = int(
+        os.environ.get("MAX_CHECKER_JOBS_PER_REQUEST", "100")
+    )
+    max_tokens_per_request: int = int(
+        os.environ.get("MAX_TOKENS_PER_REQUEST", "50000")
+    )
+
+    # Global queue backpressure (stable 503 instead of unbounded growth).
+    rq_max_queue_depth: int = int(os.environ.get("RQ_MAX_QUEUE_DEPTH", "500"))
+    rq_max_queue_age_seconds: float = float(
+        os.environ.get("RQ_MAX_QUEUE_AGE_SECONDS", "60")
+    )
+    queue_saturation_retry_after_seconds: int = int(
+        os.environ.get("QUEUE_SATURATION_RETRY_AFTER_SECONDS", "15")
+    )
+
+    # Emergency kill switch for generation endpoints.
+    emergency_circuit_breaker: bool = os.environ.get(
+        "EMERGENCY_CIRCUIT_BREAKER", "false"
+    ).lower() in {"1", "true", "yes", "on"}
+    circuit_breaker_retry_after_seconds: int = int(
+        os.environ.get("CIRCUIT_BREAKER_RETRY_AFTER_SECONDS", "60")
+    )
+
+    # Idempotency for duplicate client retries.
+    idempotency_ttl_seconds: int = int(
+        os.environ.get("IDEMPOTENCY_TTL_SECONDS", "86400")
+    )
+
+    # Legacy aliases used by older env files / tests (mapped to burst).
     generation_quota_window_seconds: int = int(
-        os.environ.get("GENERATION_QUOTA_WINDOW_SECONDS", "3600")
+        os.environ.get(
+            "GENERATION_QUOTA_WINDOW_SECONDS",
+            os.environ.get("GENERATION_QUOTA_BURST_WINDOW_SECONDS", "60"),
+        )
     )
     generation_quota_anonymous: int = int(
-        os.environ.get("GENERATION_QUOTA_ANONYMOUS", "5")
+        os.environ.get(
+            "GENERATION_QUOTA_ANONYMOUS",
+            os.environ.get("GENERATION_QUOTA_ANONYMOUS_BURST", "5"),
+        )
     )
     generation_quota_authenticated: int = int(
-        os.environ.get("GENERATION_QUOTA_AUTHENTICATED", "50")
+        os.environ.get(
+            "GENERATION_QUOTA_AUTHENTICATED",
+            os.environ.get("GENERATION_QUOTA_AUTHENTICATED_BURST", "50"),
+        )
     )
     generation_quota_anonymous_network: int = int(
-        os.environ.get("GENERATION_QUOTA_ANONYMOUS_NETWORK", "20")
+        os.environ.get(
+            "GENERATION_QUOTA_ANONYMOUS_NETWORK",
+            os.environ.get("GENERATION_QUOTA_ANONYMOUS_NETWORK_BURST", "20"),
+        )
     )
     redis_connect_timeout_seconds: float = float(
         os.environ.get("REDIS_CONNECT_TIMEOUT_SECONDS", "0.5")
@@ -212,14 +346,49 @@ class Settings(BaseSettings):
             raise ValueError("GROQ_MODEL_REQUEST_TIMEOUT_SECONDS must be positive")
         if self.groq_creative_revalidation_seconds < 0:
             raise ValueError("GROQ_CREATIVE_REVALIDATION_SECONDS must not be negative")
-        if self.generation_quota_window_seconds < 1:
-            raise ValueError("GENERATION_QUOTA_WINDOW_SECONDS must be positive")
-        if self.generation_quota_anonymous < 1:
-            raise ValueError("GENERATION_QUOTA_ANONYMOUS must be positive")
-        if self.generation_quota_authenticated < 1:
-            raise ValueError("GENERATION_QUOTA_AUTHENTICATED must be positive")
-        if self.generation_quota_anonymous_network < 1:
-            raise ValueError("GENERATION_QUOTA_ANONYMOUS_NETWORK must be positive")
+        positive_ints = {
+            "GENERATION_QUOTA_BURST_WINDOW_SECONDS": self.generation_quota_burst_window_seconds,
+            "GENERATION_QUOTA_DAILY_WINDOW_SECONDS": self.generation_quota_daily_window_seconds,
+            "GENERATION_QUOTA_ANONYMOUS_BURST": self.generation_quota_anonymous_burst,
+            "GENERATION_QUOTA_AUTHENTICATED_BURST": self.generation_quota_authenticated_burst,
+            "GENERATION_QUOTA_ANONYMOUS_NETWORK_BURST": self.generation_quota_anonymous_network_burst,
+            "GENERATION_QUOTA_ANONYMOUS_DAILY": self.generation_quota_anonymous_daily,
+            "GENERATION_QUOTA_AUTHENTICATED_DAILY": self.generation_quota_authenticated_daily,
+            "GENERATION_QUOTA_ANONYMOUS_NETWORK_DAILY": self.generation_quota_anonymous_network_daily,
+            "CANDIDATES_QUOTA_ANONYMOUS_BURST": self.candidates_quota_anonymous_burst,
+            "CANDIDATES_QUOTA_AUTHENTICATED_BURST": self.candidates_quota_authenticated_burst,
+            "CANDIDATES_QUOTA_ANONYMOUS_DAILY": self.candidates_quota_anonymous_daily,
+            "CANDIDATES_QUOTA_AUTHENTICATED_DAILY": self.candidates_quota_authenticated_daily,
+            "TOKENS_QUOTA_ANONYMOUS_BURST": self.tokens_quota_anonymous_burst,
+            "TOKENS_QUOTA_AUTHENTICATED_BURST": self.tokens_quota_authenticated_burst,
+            "TOKENS_QUOTA_ANONYMOUS_DAILY": self.tokens_quota_anonymous_daily,
+            "TOKENS_QUOTA_AUTHENTICATED_DAILY": self.tokens_quota_authenticated_daily,
+            "CHECKER_JOBS_QUOTA_ANONYMOUS_BURST": self.checker_jobs_quota_anonymous_burst,
+            "CHECKER_JOBS_QUOTA_AUTHENTICATED_BURST": self.checker_jobs_quota_authenticated_burst,
+            "CHECKER_JOBS_QUOTA_ANONYMOUS_DAILY": self.checker_jobs_quota_anonymous_daily,
+            "CHECKER_JOBS_QUOTA_AUTHENTICATED_DAILY": self.checker_jobs_quota_authenticated_daily,
+            "CONCURRENT_GENERATIONS_ANONYMOUS": self.concurrent_generations_anonymous,
+            "CONCURRENT_GENERATIONS_AUTHENTICATED": self.concurrent_generations_authenticated,
+            "MAX_CANDIDATES_PER_REQUEST": self.max_candidates_per_request,
+            "MAX_CHECKER_JOBS_PER_REQUEST": self.max_checker_jobs_per_request,
+            "MAX_TOKENS_PER_REQUEST": self.max_tokens_per_request,
+            "RQ_MAX_QUEUE_DEPTH": self.rq_max_queue_depth,
+            "QUEUE_SATURATION_RETRY_AFTER_SECONDS": self.queue_saturation_retry_after_seconds,
+            "CIRCUIT_BREAKER_RETRY_AFTER_SECONDS": self.circuit_breaker_retry_after_seconds,
+            "IDEMPOTENCY_TTL_SECONDS": self.idempotency_ttl_seconds,
+            "GENERATION_QUOTA_WINDOW_SECONDS": self.generation_quota_window_seconds,
+            "GENERATION_QUOTA_ANONYMOUS": self.generation_quota_anonymous,
+            "GENERATION_QUOTA_AUTHENTICATED": self.generation_quota_authenticated,
+            "GENERATION_QUOTA_ANONYMOUS_NETWORK": self.generation_quota_anonymous_network,
+            "MAX_SUGGESTIONS_RETRIES": self.max_suggestions_retries,
+        }
+        for name, value in positive_ints.items():
+            if value < 1:
+                raise ValueError(f"{name} must be positive")
+        if self.request_wall_time_seconds <= 0:
+            raise ValueError("REQUEST_WALL_TIME_SECONDS must be positive")
+        if self.rq_max_queue_age_seconds <= 0:
+            raise ValueError("RQ_MAX_QUEUE_AGE_SECONDS must be positive")
         if self.redis_connect_timeout_seconds <= 0:
             raise ValueError("REDIS_CONNECT_TIMEOUT_SECONDS must be positive")
         if self.redis_socket_timeout_seconds <= 0:

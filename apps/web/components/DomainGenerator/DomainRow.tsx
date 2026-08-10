@@ -12,7 +12,7 @@ import {
 import { cn, getDomainRegistrarUrl } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { toast } from '@/components/ui/sonner';
-import { apiFetch } from '@/lib/api-client';
+import { apiFetch, newIdempotencyKey } from '@/lib/api-client';
 
 // Components
 import Link from 'next/link';
@@ -339,6 +339,7 @@ export default function DomainRow({
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Idempotency-Key': newIdempotencyKey(),
                 },
                 body: JSON.stringify(requestBody),
                 signal: controller.signal,

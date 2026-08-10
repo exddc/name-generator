@@ -11,6 +11,47 @@ let inflightRequest: Promise<CachedToken> | null = null;
 const TOKEN_ENDPOINT = '/api/token';
 const SAFETY_WINDOW_MS = 15_000;
 
+/** Shared with API: exponential_backoff_jitter (docs/cost-controls.md). */
+export const RETRY_POLICY = {
+    name: 'exponential_backoff_jitter',
+    baseDelaySeconds: 0.5,
+    maxDelaySeconds: 8,
+} as const;
+
+export function retryDelaySeconds(
+    attempt: number,
+    base: number = RETRY_POLICY.baseDelaySeconds,
+    max: number = RETRY_POLICY.maxDelaySeconds
+): number {
+    const ceiling = Math.min(max, base * 2 ** Math.max(0, attempt));
+    return Math.random() * ceiling;
+}
+
+export function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function newIdempotencyKey(): string {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+        return crypto.randomUUID();
+    }
+    return `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function parseRetryAfterSeconds(
+    response: Response,
+    body?: { retry_after_seconds?: number | null }
+): number | null {
+    if (body?.retry_after_seconds != null && body.retry_after_seconds > 0) {
+        return body.retry_after_seconds;
+    }
+    const header = response.headers.get('Retry-After');
+    if (!header) return null;
+    const asInt = Number(header);
+    if (!Number.isNaN(asInt) && asInt >= 0) return asInt;
+    return null;
+}
+
 async function requestNewToken(): Promise<CachedToken> {
     const response = await fetch(TOKEN_ENDPOINT, {
         method: 'GET',

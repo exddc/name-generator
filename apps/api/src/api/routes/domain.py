@@ -5,14 +5,25 @@ import datetime
 import time
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rq import Queue
 from rq.job import Job
 
+from api.backpressure import (
+    assert_circuit_closed,
+    assert_queue_age_within_budget,
+    release_queue_capacity,
+    reserve_queue_capacity,
+)
 from api.config import get_settings
+from api.idempotency import (
+    abandon_idempotency,
+    claim_idempotency,
+    complete_idempotency,
+)
 from api.models.api_models import (
     DomainStatus,
     DomainSuggestion,
@@ -30,6 +41,7 @@ from api.models.api_models import (
 )
 from api.exceptions import (
     DomainGeneratorException,
+    RateLimitedError,
     ServiceUnavailableError,
     create_error_response,
 )
@@ -49,7 +61,14 @@ from api.security import (
     ensure_user_matches,
     require_authenticated_user,
 )
-from api.quotas import QuotaResult, enforce_generation_quota
+from api.quotas import (
+    QuotaResult,
+    RequestBudget,
+    consume_resource_quota,
+    enforce_generation_quota,
+    get_quota_redis,
+)
+from api.retry_policy import default_retry_policy
 from api.sse import SSE_RESPONSE_HEADERS, format_sse, with_heartbeat
 from api.models.db_models import Rating as RatingDB, Domain as DomainDB, Favorite as FavoriteDB, Suggestion as SuggestionDB, WorkerMetrics, QueueSnapshot
 from tortoise import connections
@@ -65,6 +84,10 @@ _format_sse = format_sse
 
 
 router = APIRouter(prefix="/domain", tags=["domain"])
+
+
+class RequestCancelled(Exception):
+    """Client disconnected or request marked obsolete; do not persist success."""
 
 
 @router.get("/")
@@ -352,13 +375,14 @@ async def get_domain_variants(
     domain_name: str,
     background_tasks: BackgroundTasks,
     limit: int = Query(10, ge=1, le=100, description="Number of available TLD variants to find."),
-    _: AuthenticatedUser = Depends(require_authenticated_user),
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user),
     __: QuotaResult = Depends(enforce_generation_quota),
 ) -> ResponseDomainSuggestion:
     """
     Check a domain against a list of TLDs, iterating until enough available domains are found.
     """
     metrics = MetricsTracker(generation_path="variants")
+    budget = RequestBudget(settings)
     try:
         metrics.set_queue_depth(len(queue))
     except Exception:
@@ -375,16 +399,22 @@ async def get_domain_variants(
     tld_offset = 0
 
     while available_count < limit and tld_offset < len(POPULAR_TLDS):
+        budget.assert_within_wall_time()
         tld_batch = POPULAR_TLDS[tld_offset : tld_offset + tld_batch_size]
         if not tld_batch:
             break
         
         plain_domains_to_check = [f"{domain_name}.{tld}" for tld in tld_batch]
         metrics.add_domains_generated(plain_domains_to_check)
+        _charge_generation_resources(
+            auth_user, budget, candidates=len(plain_domains_to_check)
+        )
 
         metrics.start_timer("worker")
         metrics.increment_worker_job()
-        results = await enqueue_and_wait(plain_domains_to_check, metrics)
+        results = await enqueue_and_wait(
+            plain_domains_to_check, metrics, budget=budget, user=auth_user
+        )
         metrics.stop_timer("worker")
 
         status_lookup = {
@@ -439,107 +469,147 @@ async def get_domain_variants(
 
 @router.get("/variants/stream")
 async def get_domain_variants_stream(
+    request: Request,
     domain_name: str,
     limit: int = Query(10, ge=1, le=100, description="Number of available TLD variants to find."),
-    _: AuthenticatedUser = Depends(require_authenticated_user),
+    auth_user: AuthenticatedUser = Depends(require_authenticated_user),
     __: QuotaResult = Depends(enforce_generation_quota),
 ) -> StreamingResponse:
     """Stream domain variant checks as they are processed."""
     metrics = MetricsTracker(generation_path="variants")
+    budget = RequestBudget(settings)
+    cancelled = asyncio.Event()
 
     async def event_generator():
+        watch = asyncio.create_task(_watch_disconnect(request, cancelled))
         accumulated: list[DomainSuggestion] = []
         accumulated_lookup: dict[str, DomainSuggestion] = {}
         available_count = 0
         domains_to_store: list[tuple[str, DomainStatus]] = []
+        obsolete = False
 
-        yield _format_sse(
-            "start",
-            {"requested_count": limit, "max_retries": 0},
-        )
-
-        tld_batch_size = 20
-        tld_offset = 0
-
-        while available_count < limit and tld_offset < len(POPULAR_TLDS):
-            tld_batch = POPULAR_TLDS[tld_offset : tld_offset + tld_batch_size]
-            if not tld_batch:
-                break
-
-            plain_domains_to_check = [f"{domain_name}.{tld}" for tld in tld_batch]
-            metrics.add_domains_generated(plain_domains_to_check)
-
-            metrics.start_timer("worker")
-            metrics.increment_worker_job()
-            results = await enqueue_and_wait(plain_domains_to_check, metrics)
-            metrics.stop_timer("worker")
-
-            status_lookup = {
-                item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
-                for item in results
-                if isinstance(item, dict)
-            }
-
-            now = datetime.datetime.now(datetime.UTC)
-            new_suggestions_in_batch = []
-
-            for domain in plain_domains_to_check:
-                if domain in accumulated_lookup:
-                    continue
-
-                status_value = status_lookup.get(domain, "unknown")
-                status_enum = map_worker_status_to_domain_status(status_value)
-
-                suggestion = DomainSuggestion(
-                    domain=domain,
-                    tld=domain.split(".")[-1],
-                    status=status_enum,
-                    created_at=now,
-                    updated_at=now,
-                )
-
-                accumulated.append(suggestion)
-                accumulated_lookup[domain] = suggestion
-                domains_to_store.append((domain, status_enum))
-                metrics.add_domain_status(status_enum)
-                new_suggestions_in_batch.append(suggestion)
-
-                if status_enum is DomainStatus.AVAILABLE:
-                    available_count += 1
-
-            if new_suggestions_in_batch:
-                yield _format_sse(
-                    "suggestions",
-                    {
-                        "new": [s.model_dump(mode="json") for s in new_suggestions_in_batch],
-                        "updates": [],
-                        "available_count": available_count,
-                        "total": len(accumulated),
-                    },
-                )
-                await asyncio.sleep(0)
-
-            tld_offset += tld_batch_size
-
-        asyncio.create_task(
-            store_suggestion_batch(
-                f"Variants for {domain_name}",
-                limit,
-                settings.groq_model,
-                "variants",
-                domains_to_store,
-                metrics,
+        try:
+            yield _format_sse(
+                "start",
+                {"requested_count": limit, "max_retries": 0},
             )
-        )
 
-        yield _format_sse(
-            "complete",
-            {
-                "suggestions": [item.model_dump(mode="json") for item in accumulated],
-                "available_count": available_count,
-                "total": len(accumulated),
-            },
-        )
+            tld_batch_size = 20
+            tld_offset = 0
+
+            while available_count < limit and tld_offset < len(POPULAR_TLDS):
+                if cancelled.is_set():
+                    obsolete = True
+                    break
+                budget.assert_within_wall_time()
+                tld_batch = POPULAR_TLDS[tld_offset : tld_offset + tld_batch_size]
+                if not tld_batch:
+                    break
+
+                plain_domains_to_check = [f"{domain_name}.{tld}" for tld in tld_batch]
+                metrics.add_domains_generated(plain_domains_to_check)
+                _charge_generation_resources(
+                    auth_user, budget, candidates=len(plain_domains_to_check)
+                )
+
+                metrics.start_timer("worker")
+                metrics.increment_worker_job()
+                try:
+                    results = await enqueue_and_wait(
+                        plain_domains_to_check,
+                        metrics,
+                        budget=budget,
+                        user=auth_user,
+                        cancelled=cancelled,
+                    )
+                except RequestCancelled:
+                    obsolete = True
+                    break
+                finally:
+                    metrics.stop_timer("worker")
+
+                status_lookup = {
+                    item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
+                    for item in results
+                    if isinstance(item, dict)
+                }
+
+                now = datetime.datetime.now(datetime.UTC)
+                new_suggestions_in_batch = []
+
+                for domain in plain_domains_to_check:
+                    if domain in accumulated_lookup:
+                        continue
+
+                    status_value = status_lookup.get(domain, "unknown")
+                    status_enum = map_worker_status_to_domain_status(status_value)
+
+                    suggestion = DomainSuggestion(
+                        domain=domain,
+                        tld=domain.split(".")[-1],
+                        status=status_enum,
+                        created_at=now,
+                        updated_at=now,
+                    )
+
+                    accumulated.append(suggestion)
+                    accumulated_lookup[domain] = suggestion
+                    domains_to_store.append((domain, status_enum))
+                    metrics.add_domain_status(status_enum)
+                    new_suggestions_in_batch.append(suggestion)
+
+                    if status_enum is DomainStatus.AVAILABLE:
+                        available_count += 1
+
+                if new_suggestions_in_batch:
+                    yield _format_sse(
+                        "suggestions",
+                        {
+                            "new": [s.model_dump(mode="json") for s in new_suggestions_in_batch],
+                            "updates": [],
+                            "available_count": available_count,
+                            "total": len(accumulated),
+                        },
+                    )
+                    await asyncio.sleep(0)
+
+                tld_offset += tld_batch_size
+
+            if obsolete:
+                metrics.add_error("client_cancelled")
+                yield _format_sse(
+                    "error",
+                    create_error_response(
+                        ErrorCode.GENERATION_FAILED,
+                        details="Request cancelled by client.",
+                        retry_allowed=True,
+                    ).model_dump(),
+                )
+                return
+
+            asyncio.create_task(
+                store_suggestion_batch(
+                    f"Variants for {domain_name}",
+                    limit,
+                    settings.groq_model,
+                    "variants",
+                    domains_to_store,
+                    metrics,
+                )
+            )
+
+            yield _format_sse(
+                "complete",
+                {
+                    "suggestions": [item.model_dump(mode="json") for item in accumulated],
+                    "available_count": available_count,
+                    "total": len(accumulated),
+                },
+            )
+        finally:
+            cancelled.set()
+            watch.cancel()
+            await asyncio.gather(watch, return_exceptions=True)
 
     return StreamingResponse(
         with_heartbeat(event_generator(), interval_seconds=15),
@@ -554,6 +624,7 @@ async def suggest(
     background_tasks: BackgroundTasks,
     auth_user: AuthenticatedUser = Depends(require_authenticated_user),
     _: QuotaResult = Depends(enforce_generation_quota),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> ResponseDomainSuggestion:
     """Generate suggestions and enrich them with worker-provided availability statuses."""
     request.user_id = ensure_user_matches(request.user_id, auth_user)
@@ -563,6 +634,21 @@ async def suggest(
     max_retries = max(1, settings.max_suggestions_retries)
     prompt_type = PromptType.LEXICON if request.creative else PromptType.LEGACY
     metrics = MetricsTracker(generation_path=prompt_type.value)
+    budget = RequestBudget(settings)
+    policy = default_retry_policy(max_retries)
+    quota_client = get_quota_redis(settings)
+    idem_claim = None
+    if idempotency_key:
+        idem_claim = claim_idempotency(
+            quota_client,
+            user_id=auth_user.user_id,
+            client_key=idempotency_key,
+            ttl_seconds=settings.idempotency_ttl_seconds,
+            retry_policy=policy,
+        )
+        if not idem_claim.is_new and idem_claim.state == "completed" and idem_claim.payload:
+            return ResponseDomainSuggestion(**idem_claim.payload)
+
     try:
         metrics.set_queue_depth(len(queue))
     except Exception:
@@ -574,115 +660,153 @@ async def suggest(
     domains_to_store: list[tuple[str, DomainStatus]] = []
     suggestor = GroqSuggestor()
 
-    while retries < max_retries:
-        metrics.start_timer("llm")
-        metrics.increment_llm_call()
-        try:
-            generation = await suggestor.generate(
-                request.description, requested_count, prompt_type
+    try:
+        while retries < max_retries:
+            budget.assert_within_wall_time()
+            metrics.start_timer("llm")
+            metrics.increment_llm_call()
+            try:
+                generation = await suggestor.generate(
+                    request.description, requested_count, prompt_type
+                )
+                suggestions = generation.candidates
+                metrics.record_llm_generation(
+                    requested_model=generation.requested_model,
+                    actual_model=generation.model,
+                    usage=generation.usage,
+                    cost_usd=generation.cost_usd,
+                    latency_ms=generation.latency_ms,
+                    fallback_used=generation.fallback_used,
+                )
+                _charge_generation_resources(
+                    auth_user,
+                    budget,
+                    candidates=len(suggestions),
+                    tokens=generation.usage.get("total_tokens", 0),
+                )
+            except Exception as e:
+                metrics.add_error(f"LLM error: {str(e)}")
+                raise
+            finally:
+                metrics.stop_timer("llm")
+
+            plain_domains = list(suggestions)
+            metrics.add_domains_generated(plain_domains)
+
+            metrics.start_timer("worker")
+            metrics.increment_worker_job()
+            results = await enqueue_and_wait(
+                plain_domains, metrics, budget=budget, user=auth_user
             )
-            suggestions = generation.candidates
-            metrics.record_llm_generation(
-                requested_model=generation.requested_model,
-                actual_model=generation.model,
-                usage=generation.usage,
-                cost_usd=generation.cost_usd,
-                latency_ms=generation.latency_ms,
-                fallback_used=generation.fallback_used,
-            )
-        except Exception as e:
-            metrics.add_error(f"LLM error: {str(e)}")
-            raise
-        finally:
-            metrics.stop_timer("llm")
-        
-        plain_domains = list(suggestions)
-        metrics.add_domains_generated(plain_domains)
+            metrics.stop_timer("worker")
 
-        metrics.start_timer("worker")
-        metrics.increment_worker_job()
-        results = await enqueue_and_wait(plain_domains, metrics)
-        metrics.stop_timer("worker")
-        
-        status_lookup = {
-            item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
-            for item in results
-            if isinstance(item, dict)
-        }
+            status_lookup = {
+                item.get("domain"): item.get("status", DomainStatus.UNKNOWN.value)
+                for item in results
+                if isinstance(item, dict)
+            }
 
-        now = datetime.datetime.now(datetime.UTC)
+            now = datetime.datetime.now(datetime.UTC)
 
-        for domain in plain_domains:
-            status_value = status_lookup.get(domain, "unknown")
-            status_enum = map_worker_status_to_domain_status(status_value)
+            for domain in plain_domains:
+                status_value = status_lookup.get(domain, "unknown")
+                status_enum = map_worker_status_to_domain_status(status_value)
 
-            suggestion = DomainSuggestion(
-                domain=domain,
-                tld=domain.split(".")[-1],
-                status=status_enum,
-                created_at=now,
-                updated_at=now,
-            )
+                suggestion = DomainSuggestion(
+                    domain=domain,
+                    tld=domain.split(".")[-1],
+                    status=status_enum,
+                    created_at=now,
+                    updated_at=now,
+                )
 
-            domains_to_store.append((domain, status_enum))
-            metrics.add_domain_status(status_enum)
+                domains_to_store.append((domain, status_enum))
+                metrics.add_domain_status(status_enum)
 
-            existing = accumulated_lookup.get(domain)
-            if existing:
-                if (
-                    existing.status is not DomainStatus.AVAILABLE
-                    and status_enum is DomainStatus.AVAILABLE
-                ):
-                    for idx, item in enumerate(accumulated):
-                        if item.domain == domain:
-                            accumulated[idx] = suggestion
-                            break
-                    accumulated_lookup[domain] = suggestion
+                existing = accumulated_lookup.get(domain)
+                if existing:
+                    if (
+                        existing.status is not DomainStatus.AVAILABLE
+                        and status_enum is DomainStatus.AVAILABLE
+                    ):
+                        for idx, item in enumerate(accumulated):
+                            if item.domain == domain:
+                                accumulated[idx] = suggestion
+                                break
+                        accumulated_lookup[domain] = suggestion
+                        available_count += 1
+                    continue
+
+                if status_enum is DomainStatus.AVAILABLE and available_count >= requested_count:
+                    continue
+
+                accumulated.append(suggestion)
+                accumulated_lookup[domain] = suggestion
+                if status_enum is DomainStatus.AVAILABLE:
                     available_count += 1
-                continue
 
-            if status_enum is DomainStatus.AVAILABLE and available_count >= requested_count:
-                continue
+            if available_count >= requested_count:
+                break
 
-            accumulated.append(suggestion)
-            accumulated_lookup[domain] = suggestion
-            if status_enum is DomainStatus.AVAILABLE:
-                available_count += 1
+            retries += 1
+            metrics.increment_retry()
+            if retries < max_retries:
+                await _retry_backoff_sleep(retries - 1)
 
-        if available_count >= requested_count:
-            break
+        background_tasks.add_task(
+            store_suggestion_batch,
+            request.description,
+            requested_count,
+            metrics.actual_model or select_model_profile(prompt_type).model,
+            prompt_type.value,
+            domains_to_store,
+            metrics,
+            request.user_id
+        )
 
-        retries += 1
-        metrics.increment_retry()
-    
-    background_tasks.add_task(
-        store_suggestion_batch,
-        request.description,
-        requested_count,
-        metrics.actual_model or select_model_profile(prompt_type).model,
-        prompt_type.value,
-        domains_to_store,
-        metrics,
-        request.user_id
-    )
-
-    return ResponseDomainSuggestion(
-        suggestions=accumulated,
-        total=len(accumulated),
-    )
+        response = ResponseDomainSuggestion(
+            suggestions=accumulated,
+            total=len(accumulated),
+        )
+        if idem_claim is not None:
+            complete_idempotency(
+                quota_client,
+                idem_claim.key,
+                response.model_dump(mode="json"),
+                settings.idempotency_ttl_seconds,
+            )
+        return response
+    except Exception:
+        if idem_claim is not None and idem_claim.is_new:
+            abandon_idempotency(quota_client, idem_claim.key)
+        raise
 
 
 @router.post("/stream")
 async def suggest_stream(
+    http_request: Request,
     request: RequestDomainSuggestion,
     auth_user: AuthenticatedUser = Depends(require_authenticated_user),
     _: QuotaResult = Depends(enforce_generation_quota),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> StreamingResponse:
     """Stream domain suggestions as they are generated and checked."""
     request.user_id = ensure_user_matches(request.user_id, auth_user)
     
     requested_count = request.count or RequestDomainSuggestion.model_fields["count"].default
     max_retries = max(1, settings.max_suggestions_retries)
+    policy = default_retry_policy(max_retries)
+    budget = RequestBudget(settings)
+    quota_client = get_quota_redis(settings)
+    idem_claim = None
+    if idempotency_key:
+        idem_claim = claim_idempotency(
+            quota_client,
+            user_id=auth_user.user_id,
+            client_key=idempotency_key,
+            ttl_seconds=settings.idempotency_ttl_seconds,
+            retry_policy=policy,
+        )
 
     metrics = MetricsTracker()
     try:
@@ -699,12 +823,26 @@ async def suggest_stream(
         )
 
     async def event_generator():
+        if idem_claim is not None and not idem_claim.is_new and idem_claim.state == "completed":
+            payload = idem_claim.payload or {}
+            yield _format_sse("start", {
+                "requested_count": requested_count,
+                "max_retries": max_retries,
+                "idempotent_replay": True,
+            })
+            yield _format_sse("complete", payload)
+            return
+
+        cancelled = asyncio.Event()
+        watch = asyncio.create_task(_watch_disconnect(http_request, cancelled))
         retries = 0
         accumulated: list[DomainSuggestion] = []
         accumulated_lookup: dict[str, DomainSuggestion] = {}
         available_count = 0
         domains_to_store: list[tuple[str, DomainStatus]] = []
         first_suggestion_sent = False
+        obsolete = False
+        idem_completed = False
         
         if request.personalized and user_preferences and user_preferences.has_preferences():
             prompt_type = PromptType.PERSONALIZED
@@ -718,34 +856,51 @@ async def suggest_stream(
         suggestor = GroqSuggestor()
         
         try:
-            suggestion_db = await SuggestionDB.create(
-                description=request.description,
-                count=requested_count,
-                model=selected_profile.model,
-                prompt=prompt_type.value,
-                user_id=request.user_id,
-            )
-        except Exception as e:
-            print(f"[Stream] Failed to create suggestion record: {e}")
-            error_response = create_error_response(
-                ErrorCode.INTERNAL_ERROR,
-                details="Failed to initialize domain generation.",
-                retry_allowed=True
-            )
-            yield _format_sse("error", error_response.model_dump())
-            return
+            try:
+                suggestion_db = await SuggestionDB.create(
+                    description=request.description,
+                    count=requested_count,
+                    model=selected_profile.model,
+                    prompt=prompt_type.value,
+                    user_id=request.user_id,
+                )
+            except Exception as e:
+                print(f"[Stream] Failed to create suggestion record: {e}")
+                error_response = create_error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    details="Failed to initialize domain generation.",
+                    retry_allowed=True
+                )
+                yield _format_sse("error", error_response.model_dump())
+                return
 
-        yield _format_sse(
-            "start",
-            {
-                "requested_count": requested_count,
-                "max_retries": max_retries,
-                "requested_model": selected_profile.model,
-            },
-        )
+            yield _format_sse(
+                "start",
+                {
+                    "requested_count": requested_count,
+                    "max_retries": max_retries,
+                    "requested_model": selected_profile.model,
+                    "retry_policy": policy.name,
+                },
+            )
         
-        try:
             while retries < max_retries:
+                if cancelled.is_set():
+                    obsolete = True
+                    break
+                try:
+                    budget.assert_within_wall_time()
+                except ServiceUnavailableError as e:
+                    error_response = ErrorResponse(
+                        code=e.code,
+                        message=e.user_message,
+                        details=e.details,
+                        retry_allowed=e.retry_allowed,
+                        retry_after_seconds=e.retry_after_seconds,
+                    )
+                    yield _format_sse("error", error_response.model_dump(exclude_none=True))
+                    return
+
                 metrics.start_timer("llm")
                 metrics.increment_llm_call()
                 try:
@@ -764,10 +919,16 @@ async def suggest_stream(
                         latency_ms=generation.latency_ms,
                         fallback_used=generation.fallback_used,
                     )
+                    _charge_generation_resources(
+                        auth_user,
+                        budget,
+                        candidates=len(suggestions),
+                        tokens=generation.usage.get("total_tokens", 0),
+                    )
                     if suggestion_db.model != generation.model:
                         suggestion_db.model = generation.model
                         await suggestion_db.save(update_fields=["model"])
-                except DomainGeneratorException as e:
+                except (DomainGeneratorException, RateLimitedError) as e:
                     metrics.add_error(f"LLM error: {str(e)}")
                     metrics.stop_timer("llm")
                     error_response = ErrorResponse(
@@ -775,8 +936,9 @@ async def suggest_stream(
                         message=e.user_message,
                         details=e.details,
                         retry_allowed=e.retry_allowed,
+                        retry_after_seconds=getattr(e, "retry_after_seconds", None),
                     )
-                    yield _format_sse("error", error_response.model_dump())
+                    yield _format_sse("error", error_response.model_dump(exclude_none=True))
                     return
                 except Exception as e:
                     metrics.add_error(f"LLM error: {str(e)}")
@@ -805,13 +967,23 @@ async def suggest_stream(
                 if not domains_to_check:
                     retries += 1
                     metrics.increment_retry()
-                    await asyncio.sleep(0)
+                    if retries < max_retries:
+                        await _retry_backoff_sleep(retries - 1)
                     continue
 
                 metrics.start_timer("worker")
                 metrics.increment_worker_job()
                 try:
-                    results = await enqueue_and_wait(domains_to_check, metrics)
+                    results = await enqueue_and_wait(
+                        domains_to_check,
+                        metrics,
+                        budget=budget,
+                        user=auth_user,
+                        cancelled=cancelled,
+                    )
+                except RequestCancelled:
+                    obsolete = True
+                    break
                 except ServiceUnavailableError as e:
                     metrics.stop_timer("worker")
                     error_response = ErrorResponse(
@@ -819,8 +991,27 @@ async def suggest_stream(
                         message=e.user_message,
                         details=e.details,
                         retry_allowed=True,
+                        retry_after_seconds=e.retry_after_seconds,
                     )
-                    yield _format_sse("error", error_response.model_dump())
+                    yield _format_sse("error", error_response.model_dump(exclude_none=True))
+                    return
+                except RateLimitedError as e:
+                    metrics.stop_timer("worker")
+                    if isinstance(e.detail, dict):
+                        yield _format_sse("error", e.detail)
+                    else:
+                        yield _format_sse(
+                            "error",
+                            ErrorResponse(
+                                code=e.code,
+                                message=e.user_message,
+                                details=e.details,
+                                retry_allowed=True,
+                                retry_after_seconds=e.retry_after_seconds,
+                                limit=e.limit,
+                                remaining=e.remaining,
+                            ).model_dump(exclude_none=True),
+                        )
                     return
                 except Exception as e:
                     metrics.stop_timer("worker")
@@ -846,7 +1037,6 @@ async def suggest_stream(
 
                 for domain in plain_domains:
                     if domain not in domains_to_check and domain not in accumulated_lookup:
-                        # Domain was skipped because it exceeded caps earlier
                         continue
 
                     status_value = status_lookup.get(domain, "unknown")
@@ -930,9 +1120,21 @@ async def suggest_stream(
 
                 retries += 1
                 metrics.increment_retry()
-                await asyncio.sleep(0)
+                if retries < max_retries:
+                    await _retry_backoff_sleep(retries - 1)
 
-            
+            if obsolete:
+                metrics.add_error("client_cancelled")
+                yield _format_sse(
+                    "error",
+                    create_error_response(
+                        ErrorCode.GENERATION_FAILED,
+                        details="Request cancelled by client.",
+                        retry_allowed=True,
+                    ).model_dump(),
+                )
+                return
+
             effective_model = metrics.actual_model or selected_profile.model
             if suggestion_db.model != effective_model:
                 suggestion_db.model = effective_model
@@ -942,16 +1144,23 @@ async def suggest_stream(
                 metrics.save(suggestion_db.id, requested_count)
             )
 
-            yield _format_sse(
-                "complete",
-                {
-                    "suggestions": [item.model_dump(mode="json") for item in accumulated],
-                    "available_count": available_count,
-                    "total": len(accumulated),
-                    "model": metrics.actual_model or selected_profile.model,
-                    "fallback_used": metrics.fallback_used,
-                },
-            )
+            complete_payload = {
+                "suggestions": [item.model_dump(mode="json") for item in accumulated],
+                "available_count": available_count,
+                "total": len(accumulated),
+                "model": metrics.actual_model or selected_profile.model,
+                "fallback_used": metrics.fallback_used,
+            }
+            if idem_claim is not None:
+                complete_idempotency(
+                    quota_client,
+                    idem_claim.key,
+                    complete_payload,
+                    settings.idempotency_ttl_seconds,
+                )
+            idem_completed = True
+
+            yield _format_sse("complete", complete_payload)
             
         except Exception as e:
             print(f"[Stream] Unexpected error: {e}")
@@ -961,6 +1170,18 @@ async def suggest_stream(
                 retry_allowed=True
             )
             yield _format_sse("error", error_response.model_dump())
+        finally:
+            # Every non-complete exit abandons a newly claimed key so retries
+            # are not stuck in_progress for the full TTL.
+            if (
+                not idem_completed
+                and idem_claim is not None
+                and idem_claim.is_new
+            ):
+                abandon_idempotency(quota_client, idem_claim.key)
+            cancelled.set()
+            watch.cancel()
+            await asyncio.gather(watch, return_exceptions=True)
 
     return StreamingResponse(
         with_heartbeat(event_generator(), interval_seconds=15),
@@ -971,6 +1192,7 @@ async def suggest_stream(
 
 @router.post("/similar/stream")
 async def suggest_similar_stream(
+    http_request: Request,
     request: RequestSimilarDomains,
     auth_user: AuthenticatedUser = Depends(require_authenticated_user),
     _: QuotaResult = Depends(enforce_generation_quota),
@@ -980,6 +1202,8 @@ async def suggest_similar_stream(
     
     requested_count = request.count or 10
     max_retries = max(1, settings.max_suggestions_retries)
+    budget = RequestBudget(settings)
+    policy = default_retry_policy(max_retries)
 
     metrics = MetricsTracker()
     try:
@@ -991,12 +1215,15 @@ async def suggest_similar_stream(
     domain_name = request.source_domain.split('.')[0] if '.' in request.source_domain else request.source_domain
 
     async def event_generator():
+        cancelled = asyncio.Event()
+        watch = asyncio.create_task(_watch_disconnect(http_request, cancelled))
         retries = 0
         accumulated: list[DomainSuggestion] = []
         accumulated_lookup: dict[str, DomainSuggestion] = {}
         available_count = 0
         domains_to_store: list[tuple[str, DomainStatus]] = []
         first_suggestion_sent = False
+        obsolete = False
         prompt_type = PromptType.SIMILAR
         metrics.generation_path = prompt_type.value
         selected_profile = select_model_profile(prompt_type)
@@ -1018,6 +1245,9 @@ async def suggest_similar_stream(
                 retry_allowed=True
             )
             yield _format_sse("error", error_response.model_dump())
+            cancelled.set()
+            watch.cancel()
+            await asyncio.gather(watch, return_exceptions=True)
             return
 
         yield _format_sse(
@@ -1027,11 +1257,30 @@ async def suggest_similar_stream(
                 "max_retries": max_retries,
                 "source_domain": request.source_domain,
                 "requested_model": selected_profile.model,
+                "retry_policy": policy.name,
             },
         )
         
         try:
             while retries < max_retries:
+                if cancelled.is_set():
+                    obsolete = True
+                    break
+                try:
+                    budget.assert_within_wall_time()
+                except ServiceUnavailableError as e:
+                    yield _format_sse(
+                        "error",
+                        ErrorResponse(
+                            code=e.code,
+                            message=e.user_message,
+                            details=e.details,
+                            retry_allowed=True,
+                            retry_after_seconds=e.retry_after_seconds,
+                        ).model_dump(exclude_none=True),
+                    )
+                    return
+
                 metrics.start_timer("llm")
                 metrics.increment_llm_call()
                 try:
@@ -1050,6 +1299,12 @@ async def suggest_similar_stream(
                         latency_ms=generation.latency_ms,
                         fallback_used=generation.fallback_used,
                     )
+                    _charge_generation_resources(
+                        auth_user,
+                        budget,
+                        candidates=len(suggestions),
+                        tokens=generation.usage.get("total_tokens", 0),
+                    )
                     if suggestion_db.model != generation.model:
                         suggestion_db.model = generation.model
                         await suggestion_db.save(update_fields=["model"])
@@ -1061,8 +1316,9 @@ async def suggest_similar_stream(
                         message=e.user_message,
                         details=e.details,
                         retry_allowed=e.retry_allowed,
+                        retry_after_seconds=getattr(e, "retry_after_seconds", None),
                     )
-                    yield _format_sse("error", error_response.model_dump())
+                    yield _format_sse("error", error_response.model_dump(exclude_none=True))
                     return
                 except Exception as e:
                     metrics.add_error(f"LLM error: {str(e)}")
@@ -1091,13 +1347,23 @@ async def suggest_similar_stream(
                 if not domains_to_check:
                     retries += 1
                     metrics.increment_retry()
-                    await asyncio.sleep(0)
+                    if retries < max_retries:
+                        await _retry_backoff_sleep(retries - 1)
                     continue
 
                 metrics.start_timer("worker")
                 metrics.increment_worker_job()
                 try:
-                    results = await enqueue_and_wait(domains_to_check, metrics)
+                    results = await enqueue_and_wait(
+                        domains_to_check,
+                        metrics,
+                        budget=budget,
+                        user=auth_user,
+                        cancelled=cancelled,
+                    )
+                except RequestCancelled:
+                    obsolete = True
+                    break
                 except ServiceUnavailableError as e:
                     metrics.stop_timer("worker")
                     error_response = ErrorResponse(
@@ -1105,8 +1371,9 @@ async def suggest_similar_stream(
                         message=e.user_message,
                         details=e.details,
                         retry_allowed=True,
+                        retry_after_seconds=e.retry_after_seconds,
                     )
-                    yield _format_sse("error", error_response.model_dump())
+                    yield _format_sse("error", error_response.model_dump(exclude_none=True))
                     return
                 except Exception as e:
                     metrics.stop_timer("worker")
@@ -1210,9 +1477,21 @@ async def suggest_similar_stream(
 
                 retries += 1
                 metrics.increment_retry()
-                await asyncio.sleep(0)
+                if retries < max_retries:
+                    await _retry_backoff_sleep(retries - 1)
 
-            
+            if obsolete:
+                metrics.add_error("client_cancelled")
+                yield _format_sse(
+                    "error",
+                    create_error_response(
+                        ErrorCode.GENERATION_FAILED,
+                        details="Request cancelled by client.",
+                        retry_allowed=True,
+                    ).model_dump(),
+                )
+                return
+
             effective_model = metrics.actual_model or selected_profile.model
             if suggestion_db.model != effective_model:
                 suggestion_db.model = effective_model
@@ -1242,6 +1521,10 @@ async def suggest_similar_stream(
                 retry_allowed=True
             )
             yield _format_sse("error", error_response.model_dump())
+        finally:
+            cancelled.set()
+            watch.cancel()
+            await asyncio.gather(watch, return_exceptions=True)
 
     return StreamingResponse(
         with_heartbeat(event_generator(), interval_seconds=15),
@@ -1250,107 +1533,217 @@ async def suggest_similar_stream(
     )
 
 
-async def enqueue_and_wait(domains: List[str], metrics: Optional[MetricsTracker] = None) -> List[dict[str, str]]:
+def _cancel_jobs(jobs: List[Job]) -> None:
+    """
+    Stop obsolete work: cancel queued jobs; signal workers to stop started ones.
+
+    RQ's Job.cancel() only prevents not-yet-started work. Started jobs need
+    send_stop_job_command. Metadata for started jobs is left in place until
+    the worker acknowledges the stop so the signal can be delivered.
+    """
+    from rq.command import send_stop_job_command
+    from rq.job import JobStatus
+
+    for job in jobs:
+        try:
+            job.refresh()
+            status = job.get_status(refresh=False)
+        except Exception:
+            status = None
+
+        try:
+            if status == JobStatus.STARTED:
+                send_stop_job_command(redis_conn, job.id)
+                continue
+            job.cancel()
+        except Exception:
+            try:
+                if status == JobStatus.STARTED:
+                    send_stop_job_command(redis_conn, job.id)
+                else:
+                    job.cancel()
+            except Exception:
+                pass
+            continue
+
+        # Safe to drop Redis records only for non-running jobs.
+        try:
+            job.delete()
+        except Exception:
+            pass
+
+
+async def enqueue_and_wait(
+    domains: List[str],
+    metrics: Optional[MetricsTracker] = None,
+    *,
+    budget: RequestBudget | None = None,
+    user: AuthenticatedUser | None = None,
+    cancelled: asyncio.Event | None = None,
+) -> List[dict[str, str]]:
     """Enqueue domain check jobs individually and await their results."""
     if not domains:
         return []
 
+    if cancelled is not None and cancelled.is_set():
+        raise RequestCancelled()
+
+    if budget is not None:
+        budget.assert_within_wall_time()
+        budget.charge_checker_jobs(len(domains))
+
+    assert_circuit_closed(settings)
+    assert_queue_age_within_budget(redis_conn, settings)
+
     # Filter out invalid domains before sending to worker
     valid_domains, invalid_domains = filter_valid_domains(domains)
-    
+
     # Return invalid status for invalid domains immediately
     results: List[dict[str, str]] = [
         {"domain": domain, "status": "invalid"} for domain in invalid_domains
     ]
-    
+
     if invalid_domains:
         print(f"[API] Filtered out {len(invalid_domains)} invalid domains: {invalid_domains[:5]}...")
-    
+
     if not valid_domains:
         return results
+
+    # Atomically reserve capacity for the whole valid batch before any enqueue.
+    reserved_remaining = len(valid_domains)
+    depth_at_reserve = reserve_queue_capacity(
+        redis_conn, settings, amount=reserved_remaining
+    )
+    if metrics:
+        metrics.set_queue_depth(depth_at_reserve)
+
+    if user is not None:
+        try:
+            consume_resource_quota(
+                get_quota_redis(settings),
+                user,
+                resource="checker_jobs",
+                amount=len(valid_domains),
+                settings=settings,
+            )
+        except RateLimitedError:
+            release_queue_capacity(redis_conn, settings, amount=reserved_remaining)
+            raise
 
     jobs: List[Job] = []
     max_enqueue_retries = 3
     enqueued_at = time.time()
-    
-    for domain in valid_domains:
-        enqueued = False
-        for attempt in range(max_enqueue_retries):
-            try:
-                job = queue.enqueue(
-                    "domain_checker.main.handle_single_domain_check",
-                    args=[domain, enqueued_at]
+
+    try:
+        for domain in valid_domains:
+            if cancelled is not None and cancelled.is_set():
+                raise RequestCancelled()
+
+            enqueued = False
+            for attempt in range(max_enqueue_retries):
+                try:
+                    job = queue.enqueue(
+                        "domain_checker.main.handle_single_domain_check",
+                        args=[domain, enqueued_at],
+                    )
+                    jobs.append(job)
+                    enqueued = True
+                    # Job is now counted in LLEN; free one reservation slot.
+                    release_queue_capacity(redis_conn, settings, amount=1)
+                    reserved_remaining = max(0, reserved_remaining - 1)
+                    break
+                except RedisConnectionError as exc:
+                    print(
+                        f"[API] Redis connection error for {domain} "
+                        f"(attempt {attempt + 1}/{max_enqueue_retries}): {exc}"
+                    )
+                    if attempt < max_enqueue_retries - 1:
+                        await asyncio.sleep(0.1 * (attempt + 1))
+                        continue
+                except Exception as exc:
+                    print(
+                        f"[API] Enqueue error for {domain} "
+                        f"(attempt {attempt + 1}/{max_enqueue_retries}): {exc}"
+                    )
+                    if attempt < max_enqueue_retries - 1:
+                        await asyncio.sleep(0.1 * (attempt + 1))
+                        continue
+
+            if not enqueued:
+                print(f"[API] Failed to enqueue check for {domain} after retries")
+                release_queue_capacity(redis_conn, settings, amount=1)
+                reserved_remaining = max(0, reserved_remaining - 1)
+                results.append({"domain": domain, "status": "unknown"})
+
+        # Record queue snapshot AFTER all domains are enqueued
+        try:
+            queue_depth_after_enqueue = len(queue)
+            if metrics:
+                metrics.set_queue_depth(queue_depth_after_enqueue)
+            asyncio.create_task(_record_queue_snapshot(queue_depth_after_enqueue))
+        except Exception:
+            pass
+
+        timeout = settings.rq_job_timeout_seconds
+        if budget is not None:
+            timeout = min(timeout, max(1, int(budget.remaining_wall_seconds())))
+        if timeout <= 0 or not jobs:
+            return results
+
+        try:
+            valid_results = await asyncio.to_thread(
+                _wait_for_jobs_results, jobs, timeout, cancelled
+            )
+            results.extend(valid_results)
+        except RequestCancelled:
+            _cancel_jobs(jobs)
+            raise
+        except Exception as exc:
+            print(f"[API] Error waiting for jobs: {exc}")
+
+        # Record queue snapshot after processing to show drain
+        try:
+            queue_depth_after_processing = len(queue)
+            asyncio.create_task(_record_queue_snapshot(queue_depth_after_processing))
+        except Exception:
+            pass
+
+        processed_domains = set()
+        worker_updates: dict[str, dict] = {}
+
+        for r in results:
+            processed_domains.add(r["domain"])
+            worker_id = r.get("worker_id")
+            if worker_id:
+                if worker_id not in worker_updates:
+                    worker_updates[worker_id] = {
+                        "count": 0,
+                        "processing_time_ms": 0,
+                        "queue_wait_time_ms": 0,
+                    }
+                worker_updates[worker_id]["count"] += 1
+                worker_updates[worker_id]["processing_time_ms"] += r.get(
+                    "processing_time_ms", 0
                 )
-                jobs.append(job)
-                enqueued = True
-                break
-            except RedisConnectionError as exc:
-                print(f"[API] Redis connection error for {domain} (attempt {attempt + 1}/{max_enqueue_retries}): {exc}")
-                if attempt < max_enqueue_retries - 1:
-                    await asyncio.sleep(0.1 * (attempt + 1))
-                    continue
-            except Exception as exc:
-                print(f"[API] Enqueue error for {domain} (attempt {attempt + 1}/{max_enqueue_retries}): {exc}")
-                if attempt < max_enqueue_retries - 1:
-                    await asyncio.sleep(0.1 * (attempt + 1))
-                    continue
-        
-        if not enqueued:
-            print(f"[API] Failed to enqueue check for {domain} after retries")
-            results.append({"domain": domain, "status": "unknown"})
+                worker_updates[worker_id]["queue_wait_time_ms"] += r.get(
+                    "queue_wait_time_ms", 0
+                )
 
-    # Record queue snapshot AFTER all domains are enqueued
-    try:
-        queue_depth_after_enqueue = len(queue)
-        if metrics:
-            metrics.set_queue_depth(queue_depth_after_enqueue)
-        asyncio.create_task(_record_queue_snapshot(queue_depth_after_enqueue))
-    except Exception:
-        pass
+        for domain in valid_domains:
+            if domain not in processed_domains:
+                results.append({"domain": domain, "status": "unknown"})
 
-    timeout = settings.rq_job_timeout_seconds
-    if timeout <= 0 or not jobs:
+        if worker_updates:
+            asyncio.create_task(_update_worker_metrics(worker_updates))
+
         return results
-
-    try:
-        valid_results = await asyncio.to_thread(_wait_for_jobs_results, jobs, timeout)
-        results.extend(valid_results)
-    except Exception as exc:
-        print(f"[API] Error waiting for jobs: {exc}")
-    
-    # Record queue snapshot after processing to show drain
-    try:
-        queue_depth_after_processing = len(queue)
-        asyncio.create_task(_record_queue_snapshot(queue_depth_after_processing))
-    except Exception:
-        pass
-
-    processed_domains = set()
-    worker_updates: dict[str, dict] = {}
-
-    for r in results:
-        processed_domains.add(r["domain"])
-        worker_id = r.get("worker_id")
-        if worker_id:
-            if worker_id not in worker_updates:
-                worker_updates[worker_id] = {
-                    "count": 0,
-                    "processing_time_ms": 0,
-                    "queue_wait_time_ms": 0,
-                }
-            worker_updates[worker_id]["count"] += 1
-            worker_updates[worker_id]["processing_time_ms"] += r.get("processing_time_ms", 0)
-            worker_updates[worker_id]["queue_wait_time_ms"] += r.get("queue_wait_time_ms", 0)
-
-    for domain in valid_domains:
-        if domain not in processed_domains:
-            results.append({"domain": domain, "status": "unknown"})
-    
-    # Update worker metrics in background
-    if worker_updates:
-        asyncio.create_task(_update_worker_metrics(worker_updates))
-
-    return results
+    except RequestCancelled:
+        _cancel_jobs(jobs)
+        raise
+    finally:
+        if reserved_remaining > 0:
+            release_queue_capacity(redis_conn, settings, amount=reserved_remaining)
+            reserved_remaining = 0
 
 
 async def _update_worker_metrics(updates: dict[str, dict]):
@@ -1395,7 +1788,11 @@ async def _record_queue_snapshot(queue_depth: int):
         print(f"[API] Error recording queue snapshot: {e}")
 
 
-def _wait_for_jobs_results(jobs: List[Job], timeout: int) -> List[dict[str, str]]:
+def _wait_for_jobs_results(
+    jobs: List[Job],
+    timeout: int,
+    cancelled: asyncio.Event | None = None,
+) -> List[dict[str, str]]:
     deadline = time.monotonic() + timeout
     poll_interval = 0.2
 
@@ -1403,6 +1800,8 @@ def _wait_for_jobs_results(jobs: List[Job], timeout: int) -> List[dict[str, str]
     pending_jobs = list(jobs)
 
     while time.monotonic() < deadline and pending_jobs:
+        if cancelled is not None and cancelled.is_set():
+            raise RequestCancelled()
         still_pending = []
         for job in pending_jobs:
             try:
@@ -1417,12 +1816,57 @@ def _wait_for_jobs_results(jobs: List[Job], timeout: int) -> List[dict[str, str]
             except Exception as e:
                 print(f"Error refreshing job {job.id}: {e}")
                 still_pending.append(job)
-        
+
         pending_jobs = still_pending
         if pending_jobs:
             time.sleep(poll_interval)
 
     return completed_results
+
+
+async def _watch_disconnect(request: Request, cancelled: asyncio.Event) -> None:
+    try:
+        while not cancelled.is_set():
+            if await request.is_disconnected():
+                cancelled.set()
+                return
+            await asyncio.sleep(0.25)
+    except asyncio.CancelledError:
+        return
+
+
+def _charge_generation_resources(
+    user: AuthenticatedUser,
+    budget: RequestBudget,
+    *,
+    candidates: int = 0,
+    tokens: int = 0,
+) -> None:
+    if candidates:
+        budget.charge_candidates(candidates)
+        consume_resource_quota(
+            get_quota_redis(settings),
+            user,
+            resource="candidates",
+            amount=candidates,
+            settings=settings,
+        )
+    if tokens:
+        budget.charge_tokens(tokens)
+        consume_resource_quota(
+            get_quota_redis(settings),
+            user,
+            resource="tokens",
+            amount=tokens,
+            settings=settings,
+        )
+
+
+async def _retry_backoff_sleep(attempt: int) -> None:
+    policy = default_retry_policy(settings.max_suggestions_retries)
+    delay = policy.delay_seconds(attempt)
+    if delay > 0:
+        await asyncio.sleep(delay)
 
 
 def map_worker_status_to_domain_status(status_value: str) -> DomainStatus:

@@ -12,10 +12,15 @@ from starlette.requests import Request
 from api.config import Settings
 from api.exceptions import RateLimitedError, ServiceUnavailableError
 from api.quotas import (
+    RequestBudget,
     consume_generation_quota,
+    consume_request_quotas,
+    consume_resource_quota,
     enforce_generation_quota,
     quota_key,
     quota_redis_client,
+    acquire_concurrency_slot,
+    release_concurrency_slot,
 )
 from api.security import AuthenticatedUser
 
@@ -23,12 +28,43 @@ from api.security import AuthenticatedUser
 class FakeRedis:
     def __init__(self):
         self.used = {}
+        self.ttl = {}
         self.calls = []
 
-    def eval(self, script, key_count, key, window):
-        self.calls.append((script, key_count, key, window))
+    def eval(self, script, key_count, *args):
+        self.calls.append((script, key_count, args))
+        key = args[0]
+        script_text = script if isinstance(script, str) else script.decode()
+
+        if "INCRBY" in script_text:
+            window = int(args[1])
+            amount = int(args[2])
+            self.used[key] = self.used.get(key, 0) + amount
+            self.ttl[key] = window
+            return [self.used[key], window]
+
+        if "INCR" in script_text and "limit" in script_text.lower() or "ARGV[1]" in script_text and "DECR" not in script_text:
+            # concurrency acquire
+            limit = int(args[1])
+            ttl = int(args[2])
+            current = self.used.get(key, 0)
+            if current >= limit:
+                return [0, current, self.ttl.get(key, ttl)]
+            self.used[key] = current + 1
+            self.ttl[key] = ttl
+            return [1, self.used[key], ttl]
+
+        if "DECR" in script_text or "DEL" in script_text:
+            current = self.used.get(key, 0)
+            if current <= 1:
+                self.used.pop(key, None)
+                return 0
+            self.used[key] = current - 1
+            return self.used[key]
+
+        # fallback: simple incr
         self.used[key] = self.used.get(key, 0) + 1
-        return [self.used[key], window]
+        return [self.used[key], int(args[1]) if len(args) > 1 else 60]
 
 
 def test_anonymous_and_authenticated_quotas_use_distinct_limits_and_hashed_keys():
@@ -42,7 +78,7 @@ def test_anonymous_and_authenticated_quotas_use_distinct_limits_and_hashed_keys(
         window_seconds=60,
     )
     assert first.remaining == 1
-    assert "browser-cookie" not in anonymous_redis.calls[0][2]
+    assert "browser-cookie" not in anonymous_redis.calls[0][2][0]
 
     consume_generation_quota(
         anonymous_redis,
@@ -61,6 +97,8 @@ def test_anonymous_and_authenticated_quotas_use_distinct_limits_and_hashed_keys(
         )
     assert exhausted.value.status_code == 429
     assert exhausted.value.headers == {"Retry-After": "60"}
+    assert exhausted.value.detail["retry_policy"] == "exponential_backoff_jitter"
+    assert exhausted.value.detail["retry_after_seconds"] == 60
 
     authenticated = consume_generation_quota(
         FakeRedis(),
@@ -96,6 +134,101 @@ def test_rotating_anonymous_subjects_does_not_reset_network_abuse_budget():
             anonymous_network_id="203.0.113.10",
             window_seconds=60,
         )
+
+
+def test_burst_and_daily_request_quotas_both_apply():
+    redis_client = FakeRedis()
+    settings = Settings(
+        generation_quota_anonymous_burst=2,
+        generation_quota_anonymous_daily=3,
+        generation_quota_burst_window_seconds=60,
+        generation_quota_daily_window_seconds=86400,
+        generation_quota_anonymous_network_burst=100,
+        generation_quota_anonymous_network_daily=100,
+    )
+    user = AuthenticatedUser(user_id="anon:burst-daily")
+
+    consume_request_quotas(redis_client, user, network_id=None, settings=settings)
+    consume_request_quotas(redis_client, user, network_id=None, settings=settings)
+    with pytest.raises(RateLimitedError) as burst:
+        consume_request_quotas(redis_client, user, network_id=None, settings=settings)
+    assert "burst" in burst.value.details
+
+
+def test_resource_quotas_cover_candidates_tokens_and_checker_jobs():
+    redis_client = FakeRedis()
+    settings = Settings(
+        candidates_quota_anonymous_burst=5,
+        candidates_quota_anonymous_daily=10,
+        tokens_quota_anonymous_burst=100,
+        tokens_quota_anonymous_daily=200,
+        checker_jobs_quota_anonymous_burst=3,
+        checker_jobs_quota_anonymous_daily=6,
+        generation_quota_burst_window_seconds=60,
+        generation_quota_daily_window_seconds=86400,
+    )
+    user = AuthenticatedUser(user_id="anon:resources")
+
+    consume_resource_quota(
+        redis_client, user, resource="candidates", amount=5, settings=settings
+    )
+    with pytest.raises(RateLimitedError):
+        consume_resource_quota(
+            redis_client, user, resource="candidates", amount=1, settings=settings
+        )
+
+    consume_resource_quota(
+        redis_client, user, resource="tokens", amount=100, settings=settings
+    )
+    with pytest.raises(RateLimitedError):
+        consume_resource_quota(
+            redis_client, user, resource="tokens", amount=1, settings=settings
+        )
+
+    consume_resource_quota(
+        redis_client, user, resource="checker_jobs", amount=3, settings=settings
+    )
+    with pytest.raises(RateLimitedError):
+        consume_resource_quota(
+            redis_client, user, resource="checker_jobs", amount=1, settings=settings
+        )
+
+
+def test_concurrency_slot_is_bounded_and_released():
+    redis_client = FakeRedis()
+    settings = Settings(concurrent_generations_anonymous=1, request_wall_time_seconds=30)
+    user = AuthenticatedUser(user_id="anon:concurrent")
+
+    key = acquire_concurrency_slot(redis_client, user, settings=settings)
+    with pytest.raises(RateLimitedError) as limited:
+        acquire_concurrency_slot(redis_client, user, settings=settings)
+    assert limited.value.status_code == 429
+    release_concurrency_slot(redis_client, key)
+    # After release, another acquire succeeds
+    acquire_concurrency_slot(redis_client, user, settings=settings)
+
+
+def test_request_budget_wall_time_and_per_request_caps():
+    settings = Settings(
+        request_wall_time_seconds=0.01,
+        max_candidates_per_request=2,
+        max_checker_jobs_per_request=2,
+        max_tokens_per_request=10,
+        max_suggestions_retries=3,
+    )
+    budget = RequestBudget(settings)
+    budget.charge_candidates(2)
+    with pytest.raises(RateLimitedError):
+        budget.charge_candidates(1)
+    budget.charge_checker_jobs(2)
+    with pytest.raises(RateLimitedError):
+        budget.charge_checker_jobs(1)
+    budget.charge_tokens(10)
+    with pytest.raises(RateLimitedError):
+        budget.charge_tokens(1)
+    time.sleep(0.02)
+    with pytest.raises(ServiceUnavailableError):
+        budget.assert_within_wall_time()
 
 
 @contextmanager
@@ -150,6 +283,28 @@ def test_unresponsive_redis_fails_closed_within_latency_budget(monkeypatch):
         assert error.value.status_code == 503
         assert elapsed < 0.5
         quota_redis_client.cache_clear()
+
+
+def test_emergency_circuit_breaker_blocks_generation(monkeypatch):
+    settings = Settings(emergency_circuit_breaker=True, circuit_breaker_retry_after_seconds=30)
+    monkeypatch.setattr("api.quotas.get_settings", lambda: settings)
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/domain/stream",
+            "headers": [],
+            "client": ("203.0.113.10", 12345),
+        }
+    )
+    with pytest.raises(ServiceUnavailableError) as error:
+        enforce_generation_quota(
+            request,
+            AuthenticatedUser(user_id="anon:kill-switch"),
+        )
+    assert error.value.status_code == 503
+    assert error.value.headers["Retry-After"] == "30"
+    assert "circuit breaker" in (error.value.details or "").lower()
 
 
 @pytest.mark.skipif(
